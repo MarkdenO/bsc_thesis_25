@@ -28,8 +28,9 @@ def scrape_aoc_leaderboard():
                     # Search for solution for year and day in link['href']
                     result = search_solution(link['href'], year, day)
                     if result is not None:
-                        user, solution = result
-                        github_data[year][day][user] = solution
+                        user, solution_url = result
+                        solution_code = get_python_code(solution_url)
+                        github_data[year][day][solution_url] = solution_code
     
     # Save to json
     with open('data.json', 'w') as f:
@@ -104,13 +105,14 @@ def search_solution(url, year, day, token=os.getenv('GITHUB_TOKEN')):
 
     # Find solution file in repo
     solution_code = get_solution_code(username, aoc_repos[0]['name'], year, day)
+    if solution_code is None:
+        return None
 
     return username, solution_code
 
 
 def get_solution_code(user, repo_name, year, day, token=os.getenv('GITHUB_TOKEN')):
     
-    # Search for the solution file in the repository
     search_paths = [
         "",  # Current directory
         "solutions",  # Solutions folder
@@ -140,14 +142,15 @@ def get_solution_code(user, repo_name, year, day, token=os.getenv('GITHUB_TOKEN'
 def search_contents(contents, user, repo_name, day, token=os.getenv('GITHUB_TOKEN')):
     padded_day = f"{day:02d}"
     day_str = str(day)
-    # Simple regex patterns for day matching in filenames/dirs
+    # 
+    # regex patterns for day matching in filenames/dirs
     # Allows dayXX, dayX, XX, X potentially with separators
     file_pattern = re.compile(r"(^|[\D_])(" + day_str + r"|" + padded_day + r")($|[\D_])?\.py$", re.IGNORECASE)
     dir_pattern = re.compile(r"^day(" + day_str + r"|" + padded_day + r")$|^(" + day_str + r"|" + padded_day + r")$", re.IGNORECASE)
     generic_py_pattern = re.compile(r"\.py$", re.IGNORECASE)
 
     matching_dirs = []
-    # First pass: check files directly in the current search_path
+    # check files directly in the current search_path
     for item in contents:
         if item.get('type') == 'file' and item.get('name', '').endswith('.py'):
             # Check if filename matches the day pattern
@@ -155,14 +158,14 @@ def search_contents(contents, user, repo_name, day, token=os.getenv('GITHUB_TOKE
                 print(f"  DEBUG: Found matching file directly: {item['path']}")
                 return item.get('html_url') # Found a likely candidate
 
-    # Second pass: check directories matching the day pattern
+    # check directories matching the day pattern
     for item in contents:
         if item.get('type') == 'dir':
             if dir_pattern.match(item.get('name', '')):
                 print(f"  DEBUG: Found potential day directory: {item['path']}")
                 matching_dirs.append(item['path'])
 
-    # Third pass: search inside the matching directories found
+    # search inside the matching directories found
     for dir_path in matching_dirs:
         print(f"  DEBUG: Searching inside directory: {dir_path}")
         dir_api_url = f"https://api.github.com/repos/{user}/{repo_name}/contents/{dir_path}"
@@ -178,9 +181,39 @@ def search_contents(contents, user, repo_name, day, token=os.getenv('GITHUB_TOKE
     return None # No suitable file found
         
 
+def get_python_code(solution_url, token=os.getenv("GITHUB_TOKEN")):
+    """
+        Downloads and returns the content of a Python script from a GitHub blob URL.
+        :param: solution_url (str): The GitHub blob URL of the Python file.
+        :returns: The content of the Python script as a string.
+    """
+    if 'github.com' not in solution_url or '/blob/' not in solution_url:
+        raise ValueError("Invalid GitHub blob URL")
+    
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "MarkdenO"
+    }
+    if token:
+        headers["Authorization"] = f"token {token}"
+        headers["User-Agent"] = "MarkdenO"
+        headers["Accept"] = "application/vnd.github.v3+json"
+        headers["X-GitHub-Api-Version"] = "2022-11-28"
+    else:
+        print("No Github token set in environment.")
+
+    raw_url = solution_url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
+
+    response = requests.get(raw_url)
+    response.raise_for_status()
+
+    return response.text
+
+
 
 def _make_github_api_request(api_url, token):
-    """Helper function to make authenticated GitHub API requests."""
+    """Function to make authenticated GitHub API requests."""
     headers = {
         "Accept": "application/vnd.github.v3+json",
         "X-GitHub-Api-Version": "2022-11-28",
