@@ -3,14 +3,11 @@ import requests
 from collections import defaultdict
 from bs4 import BeautifulSoup
 from github_solutions import *
+from scrape_reddit import *
 import json
 import re
 import os
 import time
-
-
-
-
 
 
 def main():
@@ -26,7 +23,7 @@ def main():
 
     if args.reddit:
         print("Reddit flag is set.")
-        # Add Reddit route
+        scrape_reddit()
 
 
 if __name__ == "__main__":
