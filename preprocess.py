@@ -1,11 +1,12 @@
 import argparse
 import json
 import re
+import os
 
 
 def preprocess_data(data):
     pp_data = {}
-    for day in range(1, 5):
+    for day in range(1, 26):
         day_repos = data.get(str(day), {})
         pp_data[day] = {}
         for repo_url, code in day_repos.items():
@@ -35,12 +36,18 @@ def preprocess_data(data):
 
 
 def main():
-    for year in range(2015,2016):
+    for year in range(2015,2024):
         github_repos_path = f'code/{year}/data_{year}.json'
         with open(github_repos_path, 'r') as f:
             data = json.load(f)
         pp_data = preprocess_data(data)
-        print(pp_data)
+        
+        # Write preprocessed data to file
+        os.makedirs('preprocessed_code', exist_ok=True)
+        with open(f'preprocessed_code/{year}.json', 'w') as f:
+            json.dump(pp_data, f, indent=4)
+
+        
 
 
 
