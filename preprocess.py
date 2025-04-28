@@ -26,8 +26,8 @@ def preprocess_data(data):
             # code = re.sub(r'def\s+(\w+)', r'def func', code)
 
             # Remove extra whitespaces
-            lines = [line.strip() for line in code.splitlines() if line.strip()]
-            code = '\n'.join(lines)
+            # lines = [line.strip() for line in code.splitlines() if line.strip()]
+            # code = '\n'.join(lines)
 
             pp_data[day][repo_url] = code
 
