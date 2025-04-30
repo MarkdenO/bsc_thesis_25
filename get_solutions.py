@@ -14,6 +14,8 @@ def main():
     parser = argparse.ArgumentParser(description="Process some optional flags.")
     parser.add_argument('--leaderboard', action='store_true', help='Get AdventOfCode leaderboard results')
     parser.add_argument('--reddit', action='store_true', help='Fetch data from r/AdventOfCode subreddit')
+    parser.add_argument('--file', type=str, help='Path to file with github repos')
+    # Misschien nog een optioneel argument voor een lijst met github repos om in te zoeken.
 
     args = parser.parse_args()
 
@@ -22,8 +24,13 @@ def main():
         scrape_aoc_leaderboard()
 
     if args.reddit:
-        print("Reddit flag is set.")
+        print("Reddit flag is set.\nScraping Reddit")
         scrape_reddit()
+
+    if args.file:
+        print('File was given. Searching for github repos in file')
+        # File route
+
 
 
 if __name__ == "__main__":

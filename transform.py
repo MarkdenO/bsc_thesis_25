@@ -5,16 +5,46 @@ import re
 import ast
 import json
 import argparse
+import subprocess
+import tempfile
 
 
-def code_to_ast(code):
-    '''Transform python code into an AST representation'''
+
+def convert_py2_to_py3(code: str) -> str:
+    """Convert Python 2 code to Python 3 code using python-modernize."""
     try:
-        tree = ast.parse(code)
-        return ast.dump(tree)
-    except SyntaxError as e:
-        print(f'Syntax error while parsing code: {e}')
+        with tempfile.NamedTemporaryFile('w+', suffix='.py', delete=False) as temp:
+            temp.write(code)
+            temp_filename = temp.name
+
+        subprocess.run(['python-modernize', '-w', temp_filename], check=True)
+
+        with open(temp_filename, 'r') as f:
+            converted_code = f.read()
+
+        return converted_code
+    except subprocess.CalledProcessError as e:
+        print(f"Modernize failed: {e}")
         return None
+    finally:
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+
+
+def code_to_ast(code: str) -> str:
+    """Transform Python code into an AST representation, with Py2 fallback."""
+    try:
+        return ast.dump(ast.parse(code))
+    except SyntaxError:
+        print("SyntaxError in original code, trying to convert from Python 2 to 3:")
+        code_py3 = convert_py2_to_py3(code)
+        if code_py3 is None:
+            return None
+        try:
+            return ast.dump(ast.parse(code_py3))
+        except SyntaxError as e:
+            print(f"Even after conversion: SyntaxError: {e}")
+            return None
 
 
 def main():
@@ -30,7 +60,7 @@ def main():
     os.makedirs('results', exist_ok=True)
 
     data_dir = f'preprocessed_code'
-    for year in range(2015,2016):
+    for year in range(2015,2024):
         data_path = f'{data_dir}/{year}.json'
         with open(data_path, 'r') as f:
             data = json.load(f)
@@ -39,7 +69,7 @@ def main():
         if args.ast:
             os.makedirs('results/ast', exist_ok=True)
             ast_data = {}
-            for day in range(1,3):
+            for day in range(1,26):
                 day_repos = data.get(str(day), {})
                 ast_data[day] = {}
                 for repo_url, code in day_repos.items():
