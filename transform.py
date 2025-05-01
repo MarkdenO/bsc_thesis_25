@@ -154,13 +154,15 @@ def code_to_tfidf(code):
         return re.findall(r'[A-Za-z_][A-Za-z0-9_]*|\d+|==|!=|<=|>=|[-+*/%=(){}\[\]:.,]', code)
 
     vectorizer = TfidfVectorizer(tokenizer=code_tokenizer, lowercase=False)
-    tfidf_matrix = vectorizer.fit_transform(code)
-    
-    tfidf_array = tfidf_matrix.toarray().tolist()  # Convert to list of lists
-    feature_names = vectorizer.get_feature_names_out().tolist()
-    
-    return tfidf_array, feature_names
-
+    try:
+        tfidf_matrix = vectorizer.fit_transform([code])
+        
+        tfidf_array = tfidf_matrix.toarray().tolist()  # Convert to list of lists
+        feature_names = vectorizer.get_feature_names_out().tolist()
+        
+        return tfidf_array, feature_names
+    except ValueError:
+        return [], []
 
 
 def main():
@@ -178,7 +180,7 @@ def main():
     data_dir = f'preprocessed_code'
 
     for year in range(2015,2024):
-        data_path_gh = f'{data_dir}/{year}.json'
+        data_path_gh = f'{data_dir}/lb_{year}.json'
         with open(data_path_gh, 'r') as f:
             data_gh = json.load(f)
 
@@ -354,6 +356,9 @@ def main():
                     tfidf_data_reddit[day][author] = tfidf_representations
             with open(f'results/tfidf/reddit/{year}.json', 'w') as f:
                 json.dump(tfidf_data_reddit, f, indent=4)
+
+
+                # reddit dag 14 eyar 2015 Tandrial java maar wordt geclassified als python
 
 
 if __name__ == "__main__":
