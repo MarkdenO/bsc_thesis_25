@@ -2,6 +2,8 @@ import argparse
 import json
 import re
 import os
+from pygments.lexers import guess_lexer
+
 
 
 def preprocess_github(data):
@@ -19,6 +21,7 @@ def preprocess_github(data):
 def preprocess_code_snippet(code):
     # Remove comments
     # code = re.sub(r'#.*', '', code)
+
 
     # Remove docstrings
     code = re.sub(r'(""".*?"""|\'\'\'.*?\'\'\')', '', code, flags=re.DOTALL)
@@ -52,6 +55,10 @@ def preprocess_reddit(data):
 
             author = comment.get('author', 'unknown')
             code = comment.get('code', '')
+            if guess_lexer(code).name != "Python":
+                print(f'Found code in wrong language: {guess_lexer(code).name}')
+                pp_data[day][author] = None
+
             code = preprocess_code_snippet(code)
 
             if day not in pp_data:
