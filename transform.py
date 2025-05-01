@@ -12,6 +12,9 @@ from networkx.readwrite import json_graph
 import tokenize
 from io import BytesIO
 from nltk import ngrams
+from transformers import RobertaTokenizer, RobertaModel
+from sklearn.feature_extraction.text import TfidfVectorizer
+import torch
 
 
 def convert_py2_to_py3(code: str) -> str:
@@ -135,6 +138,18 @@ def code_to_ngrams(code, n=3):
         return []
     except IndentationError:
         return []
+    
+
+def code_to_embed(code: str):
+    tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+    model = RobertaModel.from_pretrained("microsoft/codebert-base")
+    tokens = tokenizer(code, return_tensors='pt', truncation=True, padding=True)
+    with torch.no_grad():
+        outputs = model(**tokens)
+    return outputs.last_hidden_state[:, 0, :].squeeze().numpy().tolist() 
+
+
+
 
 
 def main():
@@ -260,6 +275,74 @@ def main():
                     ngrams_data_reddit[day][author] = ngrams_representations
             with open(f'results/ngrams/reddit/{year}.json', 'w') as f:
                 json.dump(ngrams_data_reddit, f, indent=4)
+
+        # Embeddings
+        if args.embed:
+            os.makedirs('results/embed', exist_ok=True)
+
+            # Convert Github data
+            os.makedirs('results/embed/github', exist_ok=True)
+            embed_data_gh = {}
+
+            for day in range(1,26):
+                day_repos = data_gh.get(str(day), {})
+                embed_data_gh[day] = {}
+                for repo_url, code in day_repos.items():
+                    embed_representation = code_to_embed(code)
+
+                    embed_data_gh[day][repo_url] = embed_representation
+            with open(f'results/embed/github/{year}.json', 'w') as f:
+                json.dump(embed_data_gh, f, indent=4)
+
+            # Convert Reddit data
+            os.makedirs('results/embed/reddit', exist_ok=True)
+            embed_data_reddit = {}
+
+            for day in range(1,26):
+                day_solutions = data_reddit.get(str(day), {})
+
+                embed_data_reddit[day] = {}
+
+                for author, code in day_solutions.items():
+                    embed_representations = code_to_embed(code)
+
+                    embed_data_reddit[day][author] = embed_representations
+            with open(f'results/embed/reddit/{year}.json', 'w') as f:
+                json.dump(embed_data_reddit, f, indent=4)
+
+
+        if args.tfidf:
+            os.makedirs('results/tfidf', exist_ok=True)
+
+            # Convert Github data
+            os.makedirs('results/tfidf/github', exist_ok=True)
+            tfidf_data_gh = {}
+
+            for day in range(1,26):
+                day_repos = data_gh.get(str(day), {})
+                tfidf_data_gh[day] = {}
+                for repo_url, code in day_repos.items():
+                    tfidf_representation = code_to_tfidf(code)
+
+                    tfidf_data_gh[day][repo_url] = tfidf_representation
+            with open(f'results/tfidf/github/{year}.json', 'w') as f:
+                json.dump(tfidf_data_gh, f, indent=4)
+
+            # Convert Reddit data
+            os.makedirs('results/tfidf/reddit', exist_ok=True)
+            tfidf_data_reddit = {}
+
+            for day in range(1,26):
+                day_solutions = data_reddit.get(str(day), {})
+
+                tfidf_data_reddit[day] = {}
+
+                for author, code in day_solutions.items():
+                    tfidf_representations = code_to_tfidf(code)
+
+                    tfidf_data_reddit[day][author] = tfidf_representations
+            with open(f'results/tfidf/reddit/{year}.json', 'w') as f:
+                json.dump(tfidf_data_reddit, f, indent=4)
 
 
 if __name__ == "__main__":
