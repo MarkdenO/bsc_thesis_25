@@ -149,6 +149,17 @@ def code_to_embed(code: str):
     return outputs.last_hidden_state[:, 0, :].squeeze().numpy().tolist() 
 
 
+def code_to_tfidf(code):
+    def code_tokenizer(code):
+        return re.findall(r'[A-Za-z_][A-Za-z0-9_]*|\d+|==|!=|<=|>=|[-+*/%=(){}\[\]:.,]', code)
+
+    vectorizer = TfidfVectorizer(tokenizer=code_tokenizer, lowercase=False)
+    tfidf_matrix = vectorizer.fit_transform(code)
+    
+    tfidf_array = tfidf_matrix.toarray().tolist()  # Convert to list of lists
+    feature_names = vectorizer.get_feature_names_out().tolist()
+    
+    return tfidf_array, feature_names
 
 
 
