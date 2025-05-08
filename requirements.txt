@@ -4,3 +4,5 @@ transformers
 scikit-learn
 Pygments
 pandas
+torch
+modernize
