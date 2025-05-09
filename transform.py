@@ -7,6 +7,8 @@ import json
 import argparse
 import subprocess
 import tempfile
+import pandas as pd
+import numpy as np
 import networkx as nx
 from networkx.readwrite import json_graph
 import tokenize
@@ -41,6 +43,7 @@ def convert_py2_to_py3(code: str) -> str:
 def code_to_ast(code: str) -> str:
     """Transform Python code into an AST representation, with Py2 fallback."""
     try:
+        # print(code)
         return ast.dump(ast.parse(code))
     except SyntaxError:
         print("SyntaxError in original code, trying to convert from Python 2 to 3:")
@@ -165,6 +168,7 @@ def code_to_tfidf(code):
         return [], []
 
 
+
 def main():
     parser = argparse.ArgumentParser(description="Process some optional flags.")
     parser.add_argument('--ast', action='store_true', help='Turn code into AST represenations')
@@ -177,189 +181,54 @@ def main():
 
     os.makedirs('results', exist_ok=True)
 
-    data_dir = f'preprocessed_code'
+    # Load df from labelled_data.pkl
+    df = pd.read_pickle('labelled_data.pkl')
+    github_df = df[df['DataSource'] == 'github']
+    reddit_df = df[df['DataSource'] == 'reddit']
 
     for year in range(2015,2024):
-        data_path_gh = f'{data_dir}/lb_{year}.json'
-        with open(data_path_gh, 'r') as f:
-            data_gh = json.load(f)
-
-        with open(f'{data_dir}/reddit_{year}.json', 'r') as f:
-            data_reddit = json.load(f)
+        
         
         # AST
         if args.ast:
-            os.makedirs('results/ast', exist_ok=True)
-
-            # Convert Github data
-            os.makedirs('results/ast/github', exist_ok=True)
-            ast_data_gh = {}
-
-            for day in range(1,26):
-                day_repos = data_gh.get(str(day), {})
-                ast_data_gh[day] = {}
-                for repo_url, code in day_repos.items():
-                    ast_representations = code_to_ast(code)
-
-                    ast_data_gh[day][repo_url] = ast_representations
-            with open(f'results/ast/github/{year}.json', 'w') as f:
-                json.dump(ast_data_gh, f, indent=4)
-
-            # Convert Reddit data
-            os.makedirs('results/ast/reddit', exist_ok=True)
-            ast_data_reddit = {}
-
-            for day in range(1,26):
-                day_solutions = data_reddit.get(str(day), {})
-
-                ast_data_reddit[day] = {}
-
-                for author, code in day_solutions.items():
-                    ast_representations = code_to_ast(code)
-
-                    ast_data_reddit[day][author] = ast_representations
-            with open(f'results/ast/reddit/{year}.json', 'w') as f:
-                json.dump(ast_data_reddit, f, indent=4)
-
-        # CFG
-        if args.cfg:
-            os.makedirs('results/cfg', exist_ok=True)
-
-            # Convert Github data
-            os.makedirs('results/cfg/github', exist_ok=True)
-            cfg_data_gh = {}
-
-            for day in range(1,26):
-                day_repos = data_gh.get(str(day), {})
-                cfg_data_gh[day] = {}
-                for author, code in day_repos.items():
-                    cfg_representations = ast_to_cfg(day, year, author)
-
-                    cfg_data_gh[day][author] = cfg_representations
-            with open(f'results/cfg/github/{year}.json', 'w') as f:
-                json.dump(cfg_data_gh, f, indent=4)
             
-            # Convert Reddit data
-            os.makedirs('results/cfg/reddit', exist_ok=True)
-            cfg_data_reddit = {}
+            # Convert every code snippet to AST and add to dataframe
 
-            for day in range(1,26):
-                day_solutions = data_reddit.get(str(day), {})
+            # Go over all rows in the dataframe
+            for index, row in df.iterrows():
+                code = row['Data']
 
-                cfg_data_reddit[day] = {}
 
-                for author, code in day_solutions.items():
-                    cfg_representations = ast_to_cfg(day, year, author, source='reddit')
+                df.at[index, 'ast'] = code_to_ast(code) if row['Data'] and type(row['Data']) == str else None
 
-                    cfg_data_reddit[day][author] = cfg_representations
-            with open(f'results/cfg/reddit/{year}.json', 'w') as f:
-                json.dump(cfg_data_reddit, f, indent=4)
+            # Save the dataframe as json and pickle files
+            os.makedirs('results', exist_ok=True)
+            df.to_json(f'results/ast.json', orient='records', lines=True)
+            df.to_pickle(f'results/ast.pkl')
+
 
         # Ngrams
         if args.ngrams:
-            os.makedirs('results/ngrams', exist_ok=True)
+            
+            for index, row in df.iterrows():
+                code = row['Data']
+                df.at[index, 'ngrams'] = code_to_ngrams(code) if row['Data'] and type(row['Data']) == str else None
 
-            # Convert Github data
-            os.makedirs('results/ngrams/github', exist_ok=True)
-            ngrams_data_gh = {}
+            # Save the dataframe as json and pickle files
+            os.makedirs('results', exist_ok=True)
+            df.to_json(f'results/ngrams.json', orient='records', lines=True)
+            df.to_pickle(f'results/ngrams.pkl')
 
-            for day in range(1,26):
-                day_repos = data_gh.get(str(day), {})
-                ngrams_data_gh[day] = {}
-                for repo_url, code in day_repos.items():
-                    ngrams_representation = code_to_ngrams(code)
-
-                    ngrams_data_gh[day][repo_url] = ngrams_representation
-            with open(f'results/ngrams/github/{year}.json', 'w') as f:
-                json.dump(ngrams_data_gh, f, indent=4)
-
-            # Convert Reddit data
-            os.makedirs('results/ngrams/reddit', exist_ok=True)
-            ngrams_data_reddit = {}
-
-            for day in range(1,26):
-                day_solutions = data_reddit.get(str(day), {})
-
-                ngrams_data_reddit[day] = {}
-
-                for author, code in day_solutions.items():
-                    ngrams_representations = code_to_ngrams(code)
-
-                    ngrams_data_reddit[day][author] = ngrams_representations
-            with open(f'results/ngrams/reddit/{year}.json', 'w') as f:
-                json.dump(ngrams_data_reddit, f, indent=4)
 
         # Embeddings
         if args.embed:
-            os.makedirs('results/embed', exist_ok=True)
-
-            # Convert Github data
-            os.makedirs('results/embed/github', exist_ok=True)
-            embed_data_gh = {}
-
-            for day in range(1,26):
-                day_repos = data_gh.get(str(day), {})
-                embed_data_gh[day] = {}
-                for repo_url, code in day_repos.items():
-                    embed_representation = code_to_embed(code)
-
-                    embed_data_gh[day][repo_url] = embed_representation
-            with open(f'results/embed/github/{year}.json', 'w') as f:
-                json.dump(embed_data_gh, f, indent=4)
-
-            # Convert Reddit data
-            os.makedirs('results/embed/reddit', exist_ok=True)
-            embed_data_reddit = {}
-
-            for day in range(1,26):
-                day_solutions = data_reddit.get(str(day), {})
-
-                embed_data_reddit[day] = {}
-
-                for author, code in day_solutions.items():
-                    embed_representations = code_to_embed(code)
-
-                    embed_data_reddit[day][author] = embed_representations
-            with open(f'results/embed/reddit/{year}.json', 'w') as f:
-                json.dump(embed_data_reddit, f, indent=4)
-
+            
+            # Use contrastive learning to get the embeddings
+            result = contrastive_learning(df)
+            pass
 
         if args.tfidf:
-            os.makedirs('results/tfidf', exist_ok=True)
-
-            # Convert Github data
-            os.makedirs('results/tfidf/github', exist_ok=True)
-            tfidf_data_gh = {}
-
-            for day in range(1,26):
-                day_repos = data_gh.get(str(day), {})
-                tfidf_data_gh[day] = {}
-                for repo_url, code in day_repos.items():
-                    tfidf_representation = code_to_tfidf(code)
-
-                    tfidf_data_gh[day][repo_url] = tfidf_representation
-            with open(f'results/tfidf/github/{year}.json', 'w') as f:
-                json.dump(tfidf_data_gh, f, indent=4)
-
-            # Convert Reddit data
-            os.makedirs('results/tfidf/reddit', exist_ok=True)
-            tfidf_data_reddit = {}
-
-            for day in range(1,26):
-                day_solutions = data_reddit.get(str(day), {})
-
-                tfidf_data_reddit[day] = {}
-
-                for author, code in day_solutions.items():
-                    tfidf_representations = code_to_tfidf(code)
-
-                    tfidf_data_reddit[day][author] = tfidf_representations
-            with open(f'results/tfidf/reddit/{year}.json', 'w') as f:
-                json.dump(tfidf_data_reddit, f, indent=4)
-
-
-                # reddit dag 14 eyar 2015 Tandrial java maar wordt geclassified als python
-
+            pass
 
 if __name__ == "__main__":
     main()
