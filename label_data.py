@@ -1,13 +1,10 @@
 import pandas as pd
 import json
 import os
-import glob
 
-# Configuration
-BASE_PATH = 'results'
+BASE_PATH = 'preprocessed_code'
 CSV_PATH = 'categorization.csv'
-DATA_TYPES = ['ast', 'cfg', 'embed', 'ngrams', 'tfidf']
-DATA_SOURCES = ['github', 'reddit']
+
 YEARS = range(2015, 2024)
 
 # Load labels
@@ -23,75 +20,106 @@ except Exception as e:
     print(f"Error reading CSV file {CSV_PATH}: {e}")
     exit()
 
+github_code_data = []
+reddit_code_data = []
 
-# Iterate and Extract JSON Data
-all_code_data = []
 
-for data_type in DATA_TYPES:
-    for data_source in DATA_SOURCES:
-        for year in YEARS:
-            json_filename = f"{year}.json"
-            json_filepath = os.path.join(BASE_PATH, data_type, data_source, json_filename)
+for year in YEARS:
+    GH_FILENAME = f"lb_{year}.json"
+    GH_FILEPATH = os.path.join(BASE_PATH, GH_FILENAME)
+    REDDIT_FILENAME = f"reddit_{year}.json"
+    REDDIT_FILEPATH = os.path.join(BASE_PATH, REDDIT_FILENAME)
 
-            if os.path.exists(json_filepath):
-                print(f"Processing: {json_filepath}...")
+    if os.path.exists(GH_FILEPATH):
+        print(f"Processing: {GH_FILEPATH}...")
+        try:
+            with open(GH_FILEPATH, 'r', encoding='utf-8') as f:
+                data_year = json.load(f)
+
+            for day_str, sources_dict in data_year.items():
                 try:
-                    with open(json_filepath, 'r', encoding='utf-8') as f:
-                        data_year = json.load(f)
+                    day_int = int(day_str)
+                except ValueError:
+                    print(f"  Warning: Invalid day format '{day_str}' in {GH_FILEPATH}. Skipping.")
+                    continue
 
-                    for day_str, sources_dict in data_year.items():
-                        try:
-                            day_int = int(day_str)
-                        except ValueError:
-                            print(f"  Warning: Invalid day format '{day_str}' in {json_filepath}. Skipping.")
-                            continue
+                if not isinstance(sources_dict, dict):
+                    print(f"  Warning: Expected dict for day '{day_str}', found {type(sources_dict)} in {GH_FILEPATH}. Skipping day.")
+                    continue
 
-                        if not isinstance(sources_dict, dict):
-                            print(f"  Warning: Expected dict for day '{day_str}', found {type(sources_dict)} in {json_filepath}. Skipping day.")
-                            continue
+                for source, code_data in sources_dict.items():
+                    record = {
+                        'Year': year,
+                        'Day': day_int,
+                        'Source': source,
+                        'DataSource': 'github',
+                        'Data': code_data
+                    }
+                    github_code_data.append(record)
+        except json.JSONDecodeError as e:
+            print(f"  Error decoding JSON from {GH_FILEPATH}: {e}")
+        except Exception as e:
+            print(f"  Error processing file {GH_FILEPATH}: {e}")
+    else:
+        print(f"File not found: {GH_FILEPATH}")
+    if os.path.exists(REDDIT_FILEPATH):
+        print(f"Processing: {REDDIT_FILEPATH}...")
+        try:
+            with open(REDDIT_FILEPATH, 'r', encoding='utf-8') as f:
+                data_year = json.load(f)
 
-                        for source, code_data in sources_dict.items():
-                            record = {
-                                'Year': year,
-                                'Day': day_int,
-                                'Source': source,
-                                'DataSource': data_source,
-                                'DataType': data_type,
-                                'Data': code_data
-                            }
-                            all_code_data.append(record)
+            for day_str, sources_dict in data_year.items():
+                try:
+                    day_int = int(day_str)
+                except ValueError:
+                    print(f"  Warning: Invalid day format '{day_str}' in {REDDIT_FILEPATH}. Skipping.")
+                    continue
 
-                except json.JSONDecodeError as e:
-                    print(f"  Error decoding JSON from {json_filepath}: {e}. Skipping file.")
-                except Exception as e:
-                    print(f"  Unexpected error processing {json_filepath}: {e}. Skipping file.")
-            else:
-                pass
+                if not isinstance(sources_dict, dict):
+                    print(f"  Warning: Expected dict for day '{day_str}', found {type(sources_dict)} in {REDDIT_FILEPATH}. Skipping day.")
+                    continue
 
-print(f"\nExtracted {len(all_code_data)} code samples.")
+                for source, code_data in sources_dict.items():
+                    record = {
+                        'Year': year,
+                        'Day': day_int,
+                        'Source': source,
+                        'DataSource': 'reddit',
+                        'Data': code_data
+                    }
+                    reddit_code_data.append(record)
+        except json.JSONDecodeError as e:
+            print(f"  Error decoding JSON from {REDDIT_FILEPATH}: {e}")
+        except Exception as e:
+            print(f"  Error processing file {REDDIT_FILEPATH}: {e}")
+    else:
+        print(f"File not found: {REDDIT_FILEPATH}")
 
-# Create Code DataFrame ---
-if not all_code_data:
+# Convert to DataFrame
+if not github_code_data and not reddit_code_data:
     print("No code data was extracted. Cannot create DataFrame.")
     exit()
 
-code_df = pd.DataFrame(all_code_data)
-code_df['Year'] = code_df['Year'].astype(int)
-code_df['Day'] = code_df['Day'].astype(int)
-print(f"Created code DataFrame. Shape: {code_df.shape}")
+github_code_df = pd.DataFrame(github_code_data)
+reddit_code_df = pd.DataFrame(reddit_code_data)
+github_code_df['Year'] = github_code_df['Year'].astype(int)
+github_code_df['Day'] = github_code_df['Day'].astype(int)
+reddit_code_df['Year'] = reddit_code_df['Year'].astype(int)
+reddit_code_df['Day'] = reddit_code_df['Day'].astype(int)
 
-# Merge dfs ---
-final_df = pd.merge(labels_df, code_df, on=['Year', 'Day'], how='left')
+final_df = pd.merge(labels_df, github_code_df, on=['Year', 'Day'], how='left')
+final_df = pd.merge(final_df, reddit_code_df, on=['Year', 'Day'], how='left', suffixes=('_github', '_reddit'))
+print(f"Created final DataFrame. Shape: {final_df.shape}")
 
-print(f"\nMerged DataFrame created. Shape: {final_df.shape}")
-
-# df info
 print("\nFinal DataFrame Info:")
 final_df.info()
-
 print("\nFinal DataFrame Head:")
 print(final_df.head())
 
-# Save df to csv and pkl
-final_df.to_csv('merged_aoc_data.csv', index=False)
-final_df.to_pickle('merged_aoc_data.pkl')
+output_csv_path = 'final_output.csv'
+final_df.to_csv(output_csv_path, index=False)
+print(f"Final DataFrame saved to {output_csv_path}")
+
+output_pkl_path = 'final_output.pkl'
+final_df.to_pickle(output_pkl_path)
+print(f"Final DataFrame saved to {output_pkl_path}")
