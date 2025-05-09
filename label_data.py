@@ -2,6 +2,19 @@ import pandas as pd
 import json
 import os
 
+
+def extract_labels(df, year, day):
+    filtered_row = df[(df['Year'] == year) & (df['Day'] == day)]
+
+    if filtered_row.empty:
+        return []
+
+    specific_row_series = filtered_row.iloc[0]
+    x_marked_columns = specific_row_series[specific_row_series == 'X']
+    
+    return x_marked_columns.index.tolist()
+
+
 BASE_PATH = 'preprocessed_code'
 CSV_PATH = 'categorization.csv'
 
@@ -49,11 +62,11 @@ for year in YEARS:
 
                 for source, code_data in sources_dict.items():
                     record = {
-                        'Year': year,
-                        'Day': day_int,
-                        'Source': source,
-                        'DataSource': 'github',
-                        'Data': code_data
+                            'Year': year,
+                            'Day': day_int,
+                            'DataSource': 'github',
+                            'Data': code_data,
+                            'Labels': extract_labels(labels_df, year, day_int)
                     }
                     github_code_data.append(record)
         except json.JSONDecodeError as e:
@@ -78,15 +91,15 @@ for year in YEARS:
                 if not isinstance(sources_dict, dict):
                     print(f"  Warning: Expected dict for day '{day_str}', found {type(sources_dict)} in {REDDIT_FILEPATH}. Skipping day.")
                     continue
-
+                
                 for source, code_data in sources_dict.items():
                     record = {
-                        'Year': year,
-                        'Day': day_int,
-                        'Source': source,
-                        'DataSource': 'reddit',
-                        'Data': code_data
-                    }
+                            'Year': year,
+                            'Day': day_int,
+                            'DataSource': 'github',
+                            'Data': code_data,
+                            'Labels': extract_labels(labels_df, year, day_int)
+                        }
                     reddit_code_data.append(record)
         except json.JSONDecodeError as e:
             print(f"  Error decoding JSON from {REDDIT_FILEPATH}: {e}")
@@ -107,8 +120,9 @@ github_code_df['Day'] = github_code_df['Day'].astype(int)
 reddit_code_df['Year'] = reddit_code_df['Year'].astype(int)
 reddit_code_df['Day'] = reddit_code_df['Day'].astype(int)
 
-final_df = pd.merge(labels_df, github_code_df, on=['Year', 'Day'], how='left')
-final_df = pd.merge(final_df, reddit_code_df, on=['Year', 'Day'], how='left', suffixes=('_github', '_reddit'))
+gh_labelled_df = pd.merge(labels_df, github_code_df, on=['Year', 'Day'], how='left')
+reddit_labelled_df = pd.merge(labels_df, reddit_code_df, on=['Year', 'Day'], how='left')
+final_df = pd.concat([gh_labelled_df, reddit_labelled_df], ignore_index=True)
 print(f"Created final DataFrame. Shape: {final_df.shape}")
 
 print("\nFinal DataFrame Info:")
@@ -116,10 +130,10 @@ final_df.info()
 print("\nFinal DataFrame Head:")
 print(final_df.head())
 
-output_csv_path = 'final_output.csv'
+output_csv_path = 'labelled_data.csv'
 final_df.to_csv(output_csv_path, index=False)
 print(f"Final DataFrame saved to {output_csv_path}")
 
-output_pkl_path = 'final_output.pkl'
+output_pkl_path = 'labelled_data.pkl'
 final_df.to_pickle(output_pkl_path)
 print(f"Final DataFrame saved to {output_pkl_path}")
