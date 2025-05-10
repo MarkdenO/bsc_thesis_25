@@ -96,7 +96,7 @@ for year in YEARS:
                     record = {
                             'Year': year,
                             'Day': day_int,
-                            'DataSource': 'github',
+                            'DataSource': 'reddit',
                             'Data': code_data,
                             'Labels': extract_labels(labels_df, year, day_int)
                         }
