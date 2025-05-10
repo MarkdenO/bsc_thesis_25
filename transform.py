@@ -10,6 +10,7 @@ import tempfile
 import pandas as pd
 import numpy as np
 import networkx as nx
+import contrastive_learning
 from networkx.readwrite import json_graph
 import tokenize
 from io import BytesIO
@@ -57,90 +58,10 @@ def code_to_ast(code: str) -> str:
             return None
 
 
-def cfg_to_json(graph, func_name):
-    nodes = [{"id": str(n), "label": graph.nodes[n]["label"]} for n in graph.nodes]
-    edges = [[str(u), str(v)] for u, v in graph.edges]
-    return {"function_name": func_name, "nodes": nodes, "edges": edges}
-
-class CFGBuilder(ast.NodeVisitor):
-    def __init__(self):
-        self.graph = nx.DiGraph()
-        self.counter = 0
-        self.last_node = None
-
-    def _add_node(self, label):
-        node_id = self.counter
-        self.graph.add_node(node_id, label=label)
-        if self.last_node is not None:
-            self.graph.add_edge(self.last_node, node_id)
-        self.last_node = node_id
-        self.counter += 1
-        return node_id
-
-    def visit_FunctionDef(self, node):
-        self._add_node(f"Function: {node.name}")
-        for stmt in node.body:
-            self.visit(stmt)
-
-    def visit_If(self, node):
-        cond_id = self._add_node("If condition")
-        prev = self.last_node
-        for stmt in node.body:
-            self.visit(stmt)
-        then_id = self.last_node
-        self.last_node = prev
-        for stmt in node.orelse:
-            self.visit(stmt)
-        else_id = self.last_node
-        self.last_node = cond_id 
-
-    def visit_Expr(self, node):
-        self._add_node(f"Expr: {ast.dump(node)}")
-
-    def visit_Return(self, node):
-        self._add_node(f"Return: {ast.dump(node)}")
-
-    def visit_Assign(self, node):
-        self._add_node(f"Assign: {ast.dump(node)}")
-
-
-
-def ast_to_cfg(day, year, author, source='github'):
-    """Convert AST to CFG given author,  year and code"""
-    if source == 'github':
-        with open(f'results/ast/github/{year}.json', 'r') as f:
-            data = json.load(f)
-        
-        tree_str = data[str(day)].get(author)
-        
-        if tree_str:
-            # Convert the string back into an AST object using ast.literal_eval
-            try:
-                # Safe eval: first eval the string into a valid AST node
-                tree = ast.parse(tree_str)  # Parse string into an AST object
-                
-                if tree:
-                    cfg_builder = CFGBuilder()
-                    for node in tree.body:
-                        if isinstance(node, ast.FunctionDef):
-                            cfg_builder.visit(node)
-
-                    data = json_graph.node_link_data(cfg_builder.graph)
-                    return json.dumps(data, indent=2)
-            except Exception as e:
-                print(f"Error converting string to AST: {e}")
-
-
 def code_to_ngrams(code, n=3):
     """Turn python code into ngram representation"""
-    try:
-        tokens = [tok.string for tok in tokenize.tokenize(BytesIO(code.encode('utf-8')).readline)
-                  if tok.type in (tokenize.NAME, tokenize.OP, tokenize.NUMBER, tokenize.STRING)]
-        return list(ngrams(tokens, n))
-    except tokenize.TokenError:
-        return []
-    except IndentationError:
-        return []
+    tokens = code.split()
+    return [tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1)]
     
 
 def code_to_embed(code: str):
@@ -192,16 +113,11 @@ def main():
         # AST
         if args.ast:
             
-            # Convert every code snippet to AST and add to dataframe
-
-            # Go over all rows in the dataframe
             for index, row in df.iterrows():
                 code = row['Data']
 
-
                 df.at[index, 'ast'] = code_to_ast(code) if row['Data'] and type(row['Data']) == str else None
 
-            # Save the dataframe as json and pickle files
             os.makedirs('results', exist_ok=True)
             df.to_json(f'results/ast.json', orient='records', lines=True)
             df.to_pickle(f'results/ast.pkl')
@@ -212,9 +128,9 @@ def main():
             
             for index, row in df.iterrows():
                 code = row['Data']
-                df.at[index, 'ngrams'] = code_to_ngrams(code) if row['Data'] and type(row['Data']) == str else None
 
-            # Save the dataframe as json and pickle files
+                df.at[index, 'ngrams'] = [code_to_ngrams(code) if row['Data'] and type(row['Data']) == str else None]
+
             os.makedirs('results', exist_ok=True)
             df.to_json(f'results/ngrams.json', orient='records', lines=True)
             df.to_pickle(f'results/ngrams.pkl')
@@ -224,7 +140,7 @@ def main():
         if args.embed:
             
             # Use contrastive learning to get the embeddings
-            result = contrastive_learning(df)
+            contrastive_model, clf, mlb = contrastive_learning()
             pass
 
         if args.tfidf:
