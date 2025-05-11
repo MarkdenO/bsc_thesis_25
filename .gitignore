@@ -179,3 +179,5 @@ cython_debug/
 *.pkl
 *.csv
 /illustrations/
+*.pth
+/venv3.10/
