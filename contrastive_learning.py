@@ -123,18 +123,9 @@ def main():
 
     # --- Load Data ---
     print("Loading data...")
-    try:
-        with open(DATA_PATH, 'rb') as f:
-            df = pickle.load(f)
-    except FileNotFoundError:
-        print(f"Error: Data file not found at {DATA_PATH}. Please check the path.")
-        # Create dummy data for testing if file not found
-        print("Creating dummy data for demonstration purposes...")
-        num_samples = 200
-        dummy_code = ["def func_name(arg1, arg2):\n    return arg1 + arg2;" for _ in range(num_samples)]
-        dummy_labels_list = [["labelA"], ["labelB"], ["labelA", "labelC"], ["labelB", "labelD"]]
-        dummy_labels = [dummy_labels_list[i % len(dummy_labels_list)] for i in range(num_samples)]
-        df = pd.DataFrame({'Data': dummy_code, 'Labels': dummy_labels})
+
+    with open(DATA_PATH, 'rb') as f:
+        df = pickle.load(f)
 
 
     df = df[df['Data'].notnull()]
