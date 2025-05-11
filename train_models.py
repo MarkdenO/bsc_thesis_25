@@ -36,7 +36,7 @@ def train_mlp_on_ast(dataframe, label_columns, preprocessing_type):
     model = MultiOutputClassifier(MLPClassifier(hidden_layer_sizes=(512,), max_iter=1000, random_state=42))
     model.fit(X_train, Y_train)
     Y_pred = model.predict(X_test)
-    print("MLPL Classification Report:")
+    print("MLP Classification Report:")
     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
     return model
 
@@ -95,7 +95,7 @@ def main():
     
     # AST
     print("\nAST")
-    print("Training Bidirectional GRU on AST")
+    print("Training MLP on AST")
     df_ast = pd.read_pickle('results/ast.pkl')
     bigru_model = train_mlp_on_ast(df_ast, LABEL_COLUMNS, 'ast')
     
