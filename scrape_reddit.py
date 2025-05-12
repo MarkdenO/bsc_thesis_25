@@ -11,7 +11,10 @@ from pygments.util import ClassNotFound
 from collections import defaultdict
 from typing import List, Dict
 from pathlib import Path
-
+from typing import Optional
+import subprocess
+import sys
+from transform import convert_py2_to_py3
 
 
 headers = {
@@ -138,24 +141,88 @@ def scrape_comments(url: str) -> Dict:
         code_tag = comment.select_one(".md pre code")
         code = code_tag.get_text(strip=True) if code_tag else None
 
+        if code is None:
+            continue
+
         score_tag = comment.find("span", class_=lambda c: c and "score" in c)
         upvotes = score_tag.get_text(strip=True) if score_tag else None
 
-        language = guess_lexer(code).name if code else None
-        if language != "Python":
-            continue
+        valid_python = check_python_compatibility(code)
+        if not valid_python:
+            # Try to convert Python 2 code to Python 3
+            converted_code = convert_py2_to_py3(code)
+            if converted_code:
+                valid_python = check_python_compatibility(converted_code)
+                if valid_python:
+                    code = converted_code
+                else:
+                    continue
+            else:
+                print(f"Invalid Python code from {author}: {code}")
+                continue
 
         thread_data["comments"].append({
             "author": author,
             "text": comment_body,
             "code": code,
             "upvotes": upvotes,
-            "language": language,
+            "language": "Python ",
         })
 
     print(f"Scraped {len(thread_data['comments'])} comments from {url}")
+
+    # Save the thread data to a JSON file
+    with open("test_output.json", "w", encoding="utf-8") as f:
+        json.dump(thread_data, f, indent=4, ensure_ascii=False)
     return thread_data
 
+
+def check_python_compatibility(code: str):
+    if not isinstance(code, str):
+        return False
+    if not code.strip():
+        return True
+
+    is_py3_valid = False
+
+    current_python_real_path = os.path.realpath(sys.executable)
+
+    python3_executable_path = '/Users/markdenouden/.pyenv/versions/3.10.17/bin/python'
+    
+    use_direct_compile_for_py3 = False
+    py3_checker_subprocess_path: Optional[str] = None
+
+    if python3_executable_path:
+        resolved_found_py3_path = os.path.realpath(python3_executable_path)
+        if resolved_found_py3_path == current_python_real_path:
+            use_direct_compile_for_py3 = True
+        else:
+            py3_checker_subprocess_path = python3_executable_path
+    elif sys.version_info.major == 3:
+
+        use_direct_compile_for_py3 = True
+    
+    if use_direct_compile_for_py3:
+        try:
+            compile(code, '<string>', 'exec')
+            is_py3_valid = True
+        except (SyntaxError, IndentationError, TabError, TypeError, ValueError):
+            pass
+        except Exception: 
+            pass 
+    elif py3_checker_subprocess_path:
+        py3_compile_command = "import sys; code = sys.stdin.read(); compile(code, '<string>', 'exec')"
+        try:
+            process = subprocess.run(
+                [py3_checker_subprocess_path, "-c", py3_compile_command],
+                input=code, text=True, capture_output=True, check=False, timeout=5
+            )
+            if process.returncode == 0:
+                is_py3_valid = True
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+            pass 
+
+    return is_py3_valid
 
 
 def scrape_reddit():
@@ -175,6 +242,10 @@ def scrape_reddit():
 
     with open('data/reddit_solutions.json', 'w') as f:
         json.dump(solutions, f, indent=4)
+
+
+if __name__ == "__main__":
+    scrape_comments('https://old.reddit.com/r/programming/comments/3uyl7s/daily_programming_puzzles_at_advent_of_code/?sort=top&limit=500')
 
 
 
