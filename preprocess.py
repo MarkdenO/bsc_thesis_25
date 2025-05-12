@@ -50,14 +50,10 @@ def preprocess_reddit(data):
         comments = data.get(day_str, {}).get('comments', [])
 
         for comment in comments:
-            if comment.get('language', '').lower() != 'python':
-                continue
 
             author = comment.get('author', 'unknown')
             code = comment.get('code', '')
-            if guess_lexer(code).name != "Python":
-                print(f'Found code in wrong language: {guess_lexer(code).name}')
-                pp_data[day][author] = None
+
 
             code = preprocess_code_snippet(code)
 
