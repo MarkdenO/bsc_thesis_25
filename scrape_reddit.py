@@ -171,9 +171,6 @@ def scrape_comments(url: str) -> Dict:
 
     print(f"Scraped {len(thread_data['comments'])} comments from {url}")
 
-    # Save the thread data to a JSON file
-    with open("test_output.json", "w", encoding="utf-8") as f:
-        json.dump(thread_data, f, indent=4, ensure_ascii=False)
     return thread_data
 
 
