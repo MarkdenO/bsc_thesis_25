@@ -133,13 +133,15 @@ def train_bow_classifier(dataframe, label_columns, preprocessing_type):
     Y_pred = model.predict(X_test)
     print("Bag-of-Tokens Logistic Regression Classification Report:")
     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
-    from sklearn.metrics import accuracy_score
     accuracy_test = accuracy_score(Y_test, Y_pred)
     print("Exact match accuracy (on TEST set):", accuracy_test)
+    
+    show_example_predictions(X_test, Y_test, Y_pred, label_columns)
 
     os.makedirs('models', exist_ok=True)
     joblib.dump(model, f'models/{preprocessing_type}_bow_lr_model.joblib')
     joblib.dump(vectorizer, f'models/{preprocessing_type}_bow_vectorizer.joblib')
+
 
     return model
 
@@ -170,21 +172,26 @@ def train_knn(dataframe, label_columns, preprocessing_type):
     return model
 
 
-def show_example_predictions(X_test, Y_test, Y_pred, label_columns, n=10):
+def show_example_predictions(X_test, Y_test, Y_pred, label_columns, n=10, original_texts=None):
     print("\n--- Example Predictions ---")
-    n = min(n, len(X_test))
+
+    n_samples = X_test.shape[0]
+    n = min(n, n_samples)
+
     if n == 0:
         print("No test samples to show.")
         return
 
     for i in range(n):
-        true_labels_indices = np.where(Y_test[i] == 1)[0]
+        true_labels_indices = np.where(Y_test.iloc[i] == 1)[0]
         predicted_labels_indices = np.where(Y_pred[i] == 1)[0]
 
         true_labels = [label_columns[idx] for idx in true_labels_indices]
         predicted_labels = [label_columns[idx] for idx in predicted_labels_indices]
 
         print(f"Sample {i + 1}")
+        if original_texts is not None:
+            print(f"  Text: {original_texts.iloc[i]}")
         print(f"  True:      {true_labels if true_labels else ['(None)']}")
         print(f"  Predicted: {predicted_labels if predicted_labels else ['(None)']}")
         print("------")
