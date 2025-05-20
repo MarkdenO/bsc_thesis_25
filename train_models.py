@@ -13,6 +13,16 @@ import numpy as np
 import joblib
 import os
 from contrastive_learning import *
+from sklearn.multiclass import OneVsRestClassifier
+from skmultilearn.adapt import MLkNN
+from scipy.sparse import csr_matrix
+import re
+
+def custom_tokenizer(text):
+    # Split on word boundaries, keep symbols as tokens
+    return re.findall(r"\w+|[^\w\s]", text, re.UNICODE)
+
+
 
 LABEL_COLUMNS = [
     'Warm', 'Gram', 'Str', 'Math', 'Sptl', 'Img', 'Cell', 'Grid', 'Grph', 'Path', 'BFS', 'DFS',
@@ -30,10 +40,11 @@ def preprocess(df, preprocessing_type, label_columns):
     return X_vect, Y, vectorizer
 
 
+
 def train_mlp_on_ast(dataframe, label_columns, preprocessing_type):
     X, Y, vectorizer = preprocess(dataframe, preprocessing_type, label_columns)
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    model = MultiOutputClassifier(MLPClassifier(hidden_layer_sizes=(512,), max_iter=1000, random_state=42))
+    model = MultiOutputClassifier(MLPClassifier(hidden_layer_sizes=(512,), max_iter=1000, random_state=42, verbose=True))
     model.fit(X_train, Y_train)
     Y_pred = model.predict(X_test)
     print("MLP Classification Report:")
@@ -47,37 +58,51 @@ def train_mlp_on_ast(dataframe, label_columns, preprocessing_type):
     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
     print("At least one correct prediction:", at_least_one_correct_test)
 
+    # Save vectorizer
+    joblib.dump(vectorizer, f'models/{preprocessing_type}_mlp_vectorizer.joblib')
+
 
     return model
 
+
 def train_svm(dataframe, label_columns, preprocessing_type):
-    X, Y, _ = preprocess(dataframe, preprocessing_type, label_columns)
+    X, Y, vectorizer = preprocess(dataframe, preprocessing_type, label_columns)
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    model = MultiOutputClassifier(LinearSVC(max_iter=5000))
+
+    model = OneVsRestClassifier(LogisticRegression(max_iter=1000))
     model.fit(X_train, Y_train)
-    Y_pred = model.predict(X_test)
+    Y_prob = model.predict_proba(X_test)
+
+    # Dit tunen zorgt ervoor dat er iets wordt voorspeld, maar de voorspelling is alsnog matig.
+    Y_pred = (Y_prob > 0.1).astype(int)
+
     print("SVM Classification Report:")
     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
 
-    # Calculate accuracy and accuracy as Jaccard subset
+    # show_example_predictions(X_test, Y_test, Y_pred, label_columns)
+
     accuracy_test = accuracy_score(Y_test, Y_pred)
     print("Exact match accuracy (on TEST set):", accuracy_test)
 
-    correct_predictions_test = np.all(Y_test == Y_pred, axis=1) # Exact match
+    correct_predictions_test = np.all(Y_test == Y_pred, axis=1)
     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
     print("At least one correct prediction:", at_least_one_correct_test)
+
+    joblib.dump(vectorizer, f'models/{preprocessing_type}_svm_vectorizer.joblib')
 
     return model
 
 def train_random_forest(dataframe, label_columns, preprocessing_type):
-    X, Y, _ = preprocess(dataframe, preprocessing_type, label_columns)
+    X, Y, vectorizer = preprocess(dataframe, preprocessing_type, label_columns)
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
+    model = MultiOutputClassifier(RandomForestClassifier(n_estimators=200, random_state=42))
     model.fit(X_train, Y_train)
     Y_pred = model.predict(X_test)
     print("Random Forest Classification Report:")
     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
 
+    # show_example_predictions(X_test, Y_test, Y_pred, label_columns)
+
     # Calculate accuracy and accuracy as Jaccard subset
     accuracy_test = accuracy_score(Y_test, Y_pred)
     print("Exact match accuracy (on TEST set):", accuracy_test)
@@ -86,10 +111,42 @@ def train_random_forest(dataframe, label_columns, preprocessing_type):
     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
     print("At least one correct prediction:", at_least_one_correct_test)
 
+    # Save vectorizer
+    joblib.dump(vectorizer, f'models/{preprocessing_type}_rf_vectorizer.joblib')
+
+
     return model
 
+
+def train_bow_classifier(dataframe, label_columns, preprocessing_type):
+    X = dataframe[preprocessing_type].astype(str).fillna('')
+    Y = dataframe[label_columns].notna().astype(int)
+
+    vectorizer = CountVectorizer(tokenizer=custom_tokenizer, lowercase=False, token_pattern=None)
+    X_vect = vectorizer.fit_transform(X)
+
+    X_train, X_test, Y_train, Y_test = train_test_split(X_vect, Y, test_size=0.2, random_state=42)
+
+    model = OneVsRestClassifier(LogisticRegression(max_iter=1000, random_state=42))
+    model.fit(X_train, Y_train)
+
+    Y_pred = model.predict(X_test)
+    print("Bag-of-Tokens Logistic Regression Classification Report:")
+    print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
+    from sklearn.metrics import accuracy_score
+    accuracy_test = accuracy_score(Y_test, Y_pred)
+    print("Exact match accuracy (on TEST set):", accuracy_test)
+
+    os.makedirs('models', exist_ok=True)
+    joblib.dump(model, f'models/{preprocessing_type}_bow_lr_model.joblib')
+    joblib.dump(vectorizer, f'models/{preprocessing_type}_bow_vectorizer.joblib')
+
+    return model
+
+
+
 def train_knn(dataframe, label_columns, preprocessing_type):
-    X, Y, _ = preprocess(dataframe, preprocessing_type, label_columns)
+    X, Y, vectorizer = preprocess(dataframe, preprocessing_type, label_columns)
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
     model = MultiOutputClassifier(KNeighborsClassifier(n_neighbors=5))
     model.fit(X_train, Y_train)
@@ -97,6 +154,8 @@ def train_knn(dataframe, label_columns, preprocessing_type):
     print("K-Nearest Neighbors Classification Report:")
     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
 
+    # show_example_predictions(X_test, Y_test, Y_pred, label_columns)
+
     # Calculate accuracy and accuracy as Jaccard subset
     accuracy_test = accuracy_score(Y_test, Y_pred)
     print("Exact match accuracy (on TEST set):", accuracy_test)
@@ -105,10 +164,13 @@ def train_knn(dataframe, label_columns, preprocessing_type):
     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
     print("At least one correct prediction:", at_least_one_correct_test)
 
+    joblib.dump(vectorizer, f'models/{preprocessing_type}_knn_vectorizer.joblib')
+
+
     return model
 
 
-def show_example_predictions(X_test, Y_test, Y_pred, label_columns, n=5):
+def show_example_predictions(X_test, Y_test, Y_pred, label_columns, n=10):
     print("\n--- Example Predictions ---")
     n = min(n, len(X_test))
     if n == 0:
@@ -128,32 +190,53 @@ def show_example_predictions(X_test, Y_test, Y_pred, label_columns, n=5):
         print("------")
 
 
-def main():    
-    # AST
-    print("\nAST")
-    print("Training MLP on AST")
-    df_ast = pd.read_pickle('results/ast.pkl')
-    ast_model = train_mlp_on_ast(df_ast, LABEL_COLUMNS, 'ast')
+def show_astnn_predictions(Y_true, Y_pred, mlb, n=10):
+    """
+    Display example predictions for ASTNN using mlb.inverse_transform.
+    """
+    n = min(n, len(Y_true))
+    true_label_names = mlb.inverse_transform(Y_true)
+    pred_label_names = mlb.inverse_transform(Y_pred)
+    print("\n--- Example Predictions (ASTNN) ---")
+    for i in range(n):
+        print(f"Sample {i + 1}")
+        print(f"  True:      {true_label_names[i] if true_label_names[i] else ['(None)']}")
+        print(f"  Predicted: {pred_label_names[i] if pred_label_names[i] else ['(None)']}")
+        print("------")
+
+def main():
+    # Baseline
+    print("Bag Of Words")
+    df = pd.read_pickle('labelled_data.pkl')
+    bow_model = train_bow_classifier(df, LABEL_COLUMNS, 'Data')
+
+
+    # # AST
+    # print("\nAST")
+    # # print("Training MLP on AST")
+    # df_ast = pd.read_pickle('results/ast.pkl')
+    # ast_model = train_mlp_on_ast(df_ast, LABEL_COLUMNS, 'ast')
     
-    # Save model
-    os.makedirs('models', exist_ok=True)
-    joblib.dump(ast_model, 'models/ast_mlp_model.joblib')
+    # # Save model
+    # os.makedirs('models', exist_ok=True)
+    # joblib.dump(ast_model, 'models/ast_mlp_model.joblib')
 
-    print("\nTraining SVM on AST")
-    svm_model = train_svm(df_ast, LABEL_COLUMNS, 'ast')
-    joblib.dump(svm_model, 'models/ast_svm_model.joblib')
 
-    # Ngrams
-    print("\nNgrams")
-    print("Training Random Forest on Ngrams")
-    df_ngrams = pd.read_pickle('results/ngrams.pkl')
-    rf_model = train_random_forest(df_ngrams, LABEL_COLUMNS, 'ngrams')
-    joblib.dump(rf_model, 'models/ngrams_rf_model.joblib')
+    # print("\nTraining SVM on AST")
+    # svm_model = train_svm(df_ast, LABEL_COLUMNS, 'ast')
+    # joblib.dump(svm_model, 'models/ast_svm_model.joblib')
 
-    print("\nTraining KNN on Ngrams")
-    knn_model = train_knn(df_ngrams, LABEL_COLUMNS, 'ngrams')
-    joblib.dump(knn_model, 'models/ngrams_knn_model.joblib')
-    print("\nTraining Logistic Regression on Ngrams")
+    # # Ngrams
+    # print("\nNgrams")
+    # print("Training Random Forest on Ngrams")
+    # df_ngrams = pd.read_pickle('results/ngrams.pkl')
+    # rf_model = train_random_forest(df_ngrams, LABEL_COLUMNS, 'ngrams')
+    # joblib.dump(rf_model, 'models/ngrams_rf_model.joblib')
+
+    # print("\nTraining KNN on Ngrams")
+    # knn_model = train_knn(df_ngrams, LABEL_COLUMNS, 'ngrams')
+    # joblib.dump(knn_model, 'models/ngrams_knn_model.joblib')
+    # print("\nTraining Logistic Regression on Ngrams")
 
 
 if __name__ == "__main__":
