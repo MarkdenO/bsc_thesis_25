@@ -141,6 +141,12 @@ def scrape_comments(url: str) -> Dict:
         code_tag = comment.select_one(".md pre code")
         code = code_tag.get_text(strip=True) if code_tag else None
 
+
+        # Check if user ended up on the leaderboard using regex that matches [X: Y] (0-9)*/(0-9)*
+        leaderboard_regex = re.compile(r"\[(?:language|lang):\s*[^\]]+\]\s*(?:\b([1-9][0-9]?|100)\b\s*/\s*\d{1,4}|\d{1,4}\s*/\s*\b([1-9][0-9]?|100)\b)", re.IGNORECASE)
+        if leaderboard_regex.search(comment_body):
+            continue
+
         if code is None:
             continue
 
@@ -163,9 +169,9 @@ def scrape_comments(url: str) -> Dict:
 
         thread_data["comments"].append({
             "author": author,
-            "text": comment_body,
+            # "text": comment_body,
             "code": code,
-            "upvotes": upvotes,
+            # "upvotes": upvotes,
             "language": "Python ",
         })
 
