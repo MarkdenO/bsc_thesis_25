@@ -111,9 +111,57 @@ def preprocess_reddit(data):
     return pp_data
 
 
+def split_all_data(preprocessed_dir='preprocessed_code', output_dir='datasets'):
+    import glob
+    from collections import defaultdict
+    import random
+
+    all_samples = []
+
+    for file_path in glob.glob(os.path.join(preprocessed_dir, '*.json')):
+        filename = os.path.basename(file_path)
+        year = int(re.search(r'\d{4}', filename).group())
+        source_type = 'reddit' if 'reddit' in filename else 'leaderboard' if 'lb' in filename else 'extra'
+
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+
+        for day_str, day_data in data.items():
+            day = int(day_str)
+            for identifier, code in day_data.items():
+                if code:
+                    all_samples.append({
+                        'code': code,
+                        'source': source_type,
+                        'year': year,
+                        'day': day,
+                        'id': identifier
+                    })
+
+    # Shuffle and split
+    random.shuffle(all_samples)
+    total = len(all_samples)
+    train_end = int(0.8 * total)
+    val_end = train_end + int(0.1 * total)
+
+    train_data = all_samples[:train_end]
+    val_data = all_samples[train_end:val_end]
+    test_data = all_samples[val_end:]
+
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, 'train.json'), 'w') as f:
+        json.dump(train_data, f, indent=2)
+    with open(os.path.join(output_dir, 'val.json'), 'w') as f:
+        json.dump(val_data, f, indent=2)
+    with open(os.path.join(output_dir, 'test.json'), 'w') as f:
+        json.dump(test_data, f, indent=2)
+
+    print(f"Data split: {len(train_data)} train, {len(val_data)} val, {len(test_data)} test.")
+
+
 def main():
     for year in range(2015,2024):
-        # Preprocess Github data
+        # Preprocess AoC leaderboard data
         github_repos_path = f'code/{year}/data_{year}.json'
         with open(github_repos_path, 'r') as f:
             data = json.load(f)
@@ -135,6 +183,20 @@ def main():
         with open(f'preprocessed_code/reddit_{year}.json', 'w') as f:
             json.dump(pp_data_reddit, f, indent=4)
 
+        # Preprocess extra repositories
+        extra_repos_path = f'data/repos/extra_repos_{year}.json'
+        with open(extra_repos_path, 'r') as f:
+            data = json.load(f)
+        pp_data_extra = preprocess_github(data)
+
+        # Write preprocessed data to file
+        os.makedirs('preprocessed_code', exist_ok=True)
+        with open(f'preprocessed_code/extra_repos_{year}.json', 'w') as f:
+            json.dump(pp_data_extra, f, indent=4)
+
+    # Split all data into train, validation, and test sets
+    split_all_data(preprocessed_dir='preprocessed_code', output_dir='datasets')
+    print("Preprocessing complete.")
 
 
 
