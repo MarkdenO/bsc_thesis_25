@@ -34,7 +34,7 @@ def convert_py2_to_py3(code: str) -> str:
 
         return converted_code
     except subprocess.CalledProcessError as e:
-        print(f"Modernize failed: {e}")
+        # print(f"Modernize failed: {e}")
         return None
     finally:
         if os.path.exists(temp_filename):
@@ -45,16 +45,16 @@ def code_to_ast(code: str) -> str:
     """Transform Python code into an AST representation, with Py2 fallback."""
     try:
         # print(code)
-        return ast.dump(ast.parse(code))
+        return ast.parse(code)
     except SyntaxError:
-        print("SyntaxError in original code, trying to convert from Python 2 to 3:")
+        # print("SyntaxError in original code, trying to convert from Python 2 to 3:")
         code_py3 = convert_py2_to_py3(code)
         if code_py3 is None:
             return None
         try:
-            return ast.dump(ast.parse(code_py3))
+            return ast.parse(code_py3)
         except SyntaxError as e:
-            print(f"Even after conversion: SyntaxError: {e}")
+            # print(f"Even after conversion: SyntaxError: {e}")
             return None
 
 
@@ -103,48 +103,29 @@ def main():
     os.makedirs('results', exist_ok=True)
 
     # Load df from labelled_data.pkl
-    df = pd.read_pickle('labelled_data.pkl')
-    github_df = df[df['DataSource'] == 'github']
-    reddit_df = df[df['DataSource'] == 'reddit']
+    train_data = 'datasets/train.json'
+    val_data = 'datasets/val.json'
+    test_data = 'datasets/test.json'
+    df_train = pd.read_json(train_data)
+    df_val = pd.read_json(val_data)
+    df_test = pd.read_json(test_data)
 
-    for year in range(2015,2024):
+    dfs = [df_train, df_val, df_test]
+
+    if args.ngrams:
+        # Create train_ngrams.json, val_ngrams.json, test_ngrams.json
+        n = 3
+
+        # Files and dfs paired for easy iteration and saving
+        file_names = ['train_ngrams.json', 'val_ngrams.json', 'test_ngrams.json']
+        dfs = [df_train, df_val, df_test]
+
+        for df, file_name in zip(dfs, file_names):
+            df['ngrams'] = df['Data'].apply(lambda x: code_to_ngrams(x, n))
+            df.to_json(f'datasets/{file_name}', indent=4, orient='records')
+            print(f"Saved {file_name} with n-grams.")
+
         
-        
-        # AST
-        if args.ast:
-            
-            for index, row in df.iterrows():
-                code = row['Data']
-
-                df.at[index, 'ast'] = code_to_ast(code) if row['Data'] and type(row['Data']) == str else None
-
-            os.makedirs('results', exist_ok=True)
-            df.to_json(f'results/ast.json', orient='records', lines=True)
-            df.to_pickle(f'results/ast.pkl')
-
-
-        # Ngrams
-        if args.ngrams:
-            
-            for index, row in df.iterrows():
-                code = row['Data']
-
-                df.at[index, 'ngrams'] = [code_to_ngrams(code) if row['Data'] and type(row['Data']) == str else None]
-
-            os.makedirs('results', exist_ok=True)
-            df.to_json(f'results/ngrams.json', orient='records', lines=True)
-            df.to_pickle(f'results/ngrams.pkl')
-
-
-        # Embeddings
-        if args.embed:
-            
-            # Use contrastive learning to get the embeddings
-            contrastive_model, clf, mlb = contrastive_learning()
-            pass
-
-        if args.tfidf:
-            pass
 
 if __name__ == "__main__":
     main()
