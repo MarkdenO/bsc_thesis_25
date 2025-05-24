@@ -17,6 +17,7 @@ import umap.umap_ as umap
 import json
 import os
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import f1_score
 
 
 def load_dataset(file_path):
@@ -243,13 +244,13 @@ def evaluate_downstream_classifier(clf, X_embedded, y_true, mlb):
     # Calculate at least one correct label accuracy
     at_least_one_correct = np.sum(np.sum((y_true == 1) & (y_pred == 1), axis=1) > 0) / len(y_true)
 
-    f1_score = f1_score(y_true, y_pred, average='weighted', zero_division=0)
+    f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
     
     return {
         'exact_match_accuracy': exact_match_accuracy,
         'at_least_one_correct': at_least_one_correct,
         'y_pred': y_pred,
-        'f1_score': f1_score
+        'f1_score': f1
     }
 
 
@@ -262,17 +263,17 @@ def main():
     VAL_PATH = './datasets/val.json'
     TEST_PATH = './datasets/test.json'
     
-    MAX_TOKEN_LENGTH = 256
+    MAX_TOKEN_LENGTH = 512
 
     # Contrastive Learning Hyperparameters
-    PROJECTION_DIM = 128
+    PROJECTION_DIM = 256
     CONTRASTIVE_BATCH_SIZE = 32
-    CONTRASTIVE_EPOCHS = 20
+    CONTRASTIVE_EPOCHS = 100
     CONTRASTIVE_LR = 2e-5
     TEMPERATURE = 0.07
     
     # Early stopping parameters
-    PATIENCE = 5
+    PATIENCE = 10
     MIN_DELTA = 0.001
 
     # Downstream Classifier Hyperparameters
@@ -306,13 +307,13 @@ def main():
 
     tokenizer = RobertaTokenizer.from_pretrained(CODEBERT_MODEL_NAME)
 
-    skip_contrastive_training = True
+    skip_contrastive_training = False
 
     # Contrastive pre-training with validation
     print("\n1: Contrastive Pre-training with Validation")
 
     contrastive_model = ContrastiveCodeModel(CODEBERT_MODEL_NAME, PROJECTION_DIM).to(device)
-    contrastive_model_path = 'full_contrastive_encoder_model_with_validation.pth'
+    contrastive_model_path = 'full_contrastive_encoder_model_with_validation2.pth'
 
     if not skip_contrastive_training:
         # Create datasets and dataloaders
@@ -458,8 +459,8 @@ def main():
                 clf.fit(X_train_embedded, y_train)
                 val_metrics = evaluate_downstream_classifier(clf, X_val_embedded, y_val, mlb)
                 
-                val_accuracy = val_metrics['exact_match_accuracy']
-                print(f"    Validation accuracy: {val_accuracy:.4f}")
+                val_accuracy = val_metrics['f1_score']
+                print(f"    Validation f1: {val_accuracy:.4f}")
                 
                 if val_accuracy > best_val_accuracy:
                     best_val_accuracy = val_accuracy
@@ -469,10 +470,10 @@ def main():
                         'min_samples_split': min_samples_split
                     }
                     best_clf = clf
-                    print(f"    New best validation accuracy: {best_val_accuracy:.4f}")
+                    print(f"    New best f1: {best_val_accuracy:.4f}")
 
     print(f"\nBest parameters: {best_params}")
-    print(f"Best validation accuracy: {best_val_accuracy:.4f}")
+    print(f"Best validation f1: {best_val_accuracy:.4f}")
 
     # Final evaluation on test set
     print("\n3: Final Evaluation on Test Set")
