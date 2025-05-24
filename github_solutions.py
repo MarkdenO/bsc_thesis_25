@@ -5,6 +5,39 @@ import json
 import re
 import os
 import time
+from docx import Document
+
+
+def get_repos_from_file(file_path):
+    """
+    Reads a .docx file and extracts GitHub repository URLs from it.
+    :param file_path: Path to the .docx file.
+    :return: List of GitHub repository URLs.
+    """
+    
+    doc = Document(file_path)
+    urls = []
+    for para in doc.paragraphs:
+        if 'github.com' in para.text:
+            urls.append(para.text)
+
+    data = defaultdict(lambda: defaultdict(list)) # {2015: 1: {repo1, repo2}}
+    
+    # Search through repositories
+    for year in range(2021, 2024):
+        for day in range(1, 26):
+            data[year][day] = {}
+            for url in urls:
+                username, code = find_aoc_python_solution(url, year, day)
+                if username is not None and code is not None:
+                    data[year][day][username] = code
+            os.makedirs(f'data/repos', exist_ok=True)
+        with open(f'data/repos/extra_repos_{year}.json', 'a') as f:
+            json.dump(data[year], f, indent=4)
+    
+    with open('data/repos/extra_repos_all_years.json', 'w') as f:
+        json.dump(data, f, indent=4)
+
 
 
 def scrape_aoc_leaderboard():
@@ -14,7 +47,7 @@ def scrape_aoc_leaderboard():
     github_data = defaultdict(lambda: defaultdict(list)) # {2015: 1: {repo1, repo2}}
     BASE_URL = "https://adventofcode.com/{year}/leaderboard/day/{day}"
 
-    for year in range(2019, 2024):
+    for year in range(2017, 2024):
         for day in range(1,25):
             github_data[year][day] = {}
             print(f'Searching for solutions in Github repositories from year {year} day {day}')
@@ -26,9 +59,11 @@ def scrape_aoc_leaderboard():
             links = soup.find_all('a', href=True)
             for link in links:
                 if 'github.com' in link['href'] and link['href'] not in github_data.get(str(year), {}).get(str(day), []):
+                    print('\n')
                     # github_data[year][day].append(link['href'])
                     # Search for solution for year and day in link['href']
                     result = search_solution(link['href'], year, day)
+                    # print(result)
                     if result is not None:
                         user, solution_url = result
                         solution_code = get_python_code(solution_url)
@@ -53,78 +88,8 @@ def search_solution(url, year, day, token=os.getenv('GITHUB_TOKEN')):
     :param: day (int): The dya of the solution/puzzle
     :param: token(str): The Github token for authenticated users
     """
-    match = re.match(r"https?://github\.com/([^/?#]+)", url)
-    if not match:
-        print(f"Warning: Invalid GitHub profile URL pattern: {url}")
-        return []
-    username = match.group(1)
-
-    api_url = f"https://api.github.com/users/{username}/repos"
-
-    # Set up headers for authentication
-    headers = {}
-    if token:
-        headers["Authorization"] = f"token {token}"
-        headers["User-Agent"] = "MarkdenO"
-        headers["Accept"] = "application/vnd.github.v3+json"
-        headers["X-GitHub-Api-Version"] = "2022-11-28"
-
-    response = requests.get(api_url, headers=headers)
-
-    if response.status_code != 200:
-        return None
-
-    # All repos from user
-    repos = response.json()
-
-    # Keywords to identify Advent of Code repos
-    keywords = ['advent', 'aoc', 'advent-of-code', 'adventofcode']
-
-    aoc_repos = []
-    if isinstance(repos, list):
-        for repo in repos:
-            if isinstance(repo, dict) and 'name' in repo:
-                name = repo['name'].lower()
-                description = (repo.get('description') or "").lower()
-
-                # Check if repo is year-specific or if repo has folder for every year
-                year_specific = any(str(year) in text for text in (name, description)) or \
-                    any(str(year)[2:3] in text for text in (name, description))
-                if year_specific:
-                    # Only use year-specific repo
-                    if any(keyword in name or keyword in description for keyword in keywords):
-                        aoc_repos.append({
-                            'name': repo['name'],
-                            'html_url': repo['html_url'],
-                            'description': repo.get('description') if repo.get('description') is not None else '',
-                            'year_specific': True
-                        })
-                    continue 
-
-            else:
-                if any(keyword in name or keyword in description for keyword in keywords) and not any(y in name for y in (str(yr) for yr in range(2015, 2025) if str(yr) != year)):
-                    aoc_repos.append({
-                        'name': repo['name'],
-                        'html_url': repo['html_url'],
-                        'description': repo.get('description') if repo.get('description') is not None else '',
-                        'year_specific': False
-                    })
-  
-
-    # Filter out repos that are for another year
-    if len(aoc_repos) > 1:
-        aoc_repos = [repo for repo in aoc_repos if str(year) in repo['name'] or str(year) in repo['description']]
-        # print(aoc_repo)
-    
-    if aoc_repos == []:
-        return None
-
-    # Find solution file in repo
-    solution_code = get_solution_code(username, aoc_repos[0]['name'], year, day)
-    if solution_code is None:
-        return None
-
-    return username, solution_code
+    # Use the new AoC solution finder function for unified logic
+    return find_aoc_python_solution(url, year, day, token)
 
 
 def get_solution_code(user, repo_name, year, day, token=os.getenv('GITHUB_TOKEN')):
@@ -206,6 +171,7 @@ def get_python_code(solution_url, token=os.getenv("GITHUB_TOKEN")):
         :returns: The content of the Python script as a string.
     """
     if 'github.com' not in solution_url or '/blob/' not in solution_url:
+        print(solution_url)
         raise ValueError("Invalid GitHub blob URL")
     
     headers = {
@@ -270,3 +236,114 @@ def _make_github_api_request(api_url, token):
     except json.JSONDecodeError:
         print(f"  ERROR: Failed to decode JSON from {api_url}")
         return None
+    
+
+def find_aoc_python_solution(repo_url, year, day, token=os.getenv('GITHUB_TOKEN')):
+    """
+    Given a GitHub repository URL, AoC year, and day, check if there is a Python solution for that day/year.
+    Returns (username, code) if found, else (None, None).
+    Handles errors with informative messages.
+    """
+    import re
+    import requests
+    import base64
+
+    # 1. Parse the GitHub URL
+    url_pattern = re.compile(
+        r"https?://github\.com/(?P<username>[^/]+)/(?P<repo>[^/]+)(?:/|$)"
+    )
+    m = url_pattern.match(repo_url.strip())
+    if not m:
+        print(f"Error: Malformed GitHub URL: {repo_url}")
+        return None, None
+    username, repo = m.group("username"), m.group("repo")
+
+    # 2. Prepare API headers
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "MarkdenO"
+    }
+    if token:
+        headers["Authorization"] = f"token {token}"
+        headers["User-Agent"] = "MarkdenO"
+        headers["Accept"] = "application/vnd.github.v3+json"
+        headers["X-GitHub-Api-Version"] = "2022-11-28"
+
+    # 3. List repo contents recursively
+    api_url = f"https://api.github.com/repos/{username}/{repo}/git/trees/HEAD?recursive=1"
+    try:
+        resp = requests.get(api_url, headers=headers, timeout=20)
+        if resp.status_code == 404:
+            print(f"Error: Repository not found: {repo_url}")
+            return None, None
+        if resp.status_code != 200:
+            print(f"Error: GitHub API error ({resp.status_code}): {resp.text}")
+            return None, None
+        tree = resp.json().get("tree", [])
+    except Exception as e:
+        print(f"Error: Failed to fetch repo contents: {e}")
+        return None, None
+
+    # 4. Build possible filename patterns
+    padded_day = f"{int(day):02d}"
+    patterns = [
+        re.compile(rf"(aoc)?{year}/day[_-]?{padded_day}\.py$", re.IGNORECASE),
+        re.compile(rf"(aoc)?{year}/day[_-]?{int(day)}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/day[_-]?{padded_day}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/day[_-]?{int(day)}\.py$", re.IGNORECASE),
+        re.compile(rf"day[_-]?{year}_{padded_day}\.py$", re.IGNORECASE),
+        re.compile(rf"day[_-]?{year}_{int(day)}\.py$", re.IGNORECASE),
+        re.compile(rf"day[_-]?{padded_day}\.py$", re.IGNORECASE),
+        re.compile(rf"day[_-]?{int(day)}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/\d{{1,2}}/day[_-]?{padded_day}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/\d{{1,2}}/day[_-]?{int(day)}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/day{padded_day}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/day{int(day)}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/\d{{1,2}}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/day{padded_day}/.*\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/day{int(day)}/.*\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/.*day[_-]?{padded_day}\.py$", re.IGNORECASE),
+        re.compile(rf"{year}/.*day[_-]?{int(day)}\.py$", re.IGNORECASE),
+        re.compile(rf".*day[_-]?{padded_day}\.py$", re.IGNORECASE),
+        re.compile(rf".*day[_-]?{int(day)}\.py$", re.IGNORECASE),
+    ]
+
+    # 5. Prioritize files in year-named directories
+    candidates = []
+    for obj in tree:
+        if obj.get("type") != "blob":
+            continue
+        path = obj.get("path", "")
+        for pat in patterns:
+            if pat.search(path):
+                candidates.append(path)
+                break
+
+    # Prefer files in year-named directories
+    prioritized = [p for p in candidates if f"{year}/" in p or f"aoc{year}/" in p.lower()]
+    search_order = prioritized + [p for p in candidates if p not in prioritized]
+
+    if not search_order:
+        print(f"No Python solution found for year {year} day {day} in {repo_url}")
+        return None, None
+
+    # 6. Fetch and decode the code
+    for path in search_order:
+        file_api = f"https://api.github.com/repos/{username}/{repo}/contents/{path}"
+        try:
+            file_resp = requests.get(file_api, headers=headers, timeout=20)
+            if file_resp.status_code == 200:
+                file_json = file_resp.json()
+                if file_json.get("encoding") == "base64":
+                    code = base64.b64decode(file_json["content"]).decode("utf-8")
+                else:
+                    code = file_json.get("content", "")
+                return username, code
+            else:
+                continue
+        except Exception as e:
+            print(f"Error fetching file {path}: {e}")
+            continue
+
+    print(f"No accessible Python solution found for year {year} day {day} in {repo_url}")
+    return None, None
