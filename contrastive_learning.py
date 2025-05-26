@@ -267,7 +267,7 @@ def main():
 
     # Contrastive Learning Hyperparameters
     PROJECTION_DIM = 256
-    CONTRASTIVE_BATCH_SIZE = 32
+    CONTRASTIVE_BATCH_SIZE = 64
     CONTRASTIVE_EPOCHS = 100
     CONTRASTIVE_LR = 2e-5
     TEMPERATURE = 0.07
@@ -280,7 +280,8 @@ def main():
     LOGISTIC_MAX_ITER = 1000
     EMBEDDING_BATCH_SIZE = 64
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    # device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     # Load datasets
@@ -335,6 +336,13 @@ def main():
         patience_counter = 0
         training_history = {'train_loss': [], 'val_loss': []}
 
+        # Load existing model and continue training if available
+        if os.path.exists(contrastive_model_path):
+            contrastive_model.load_state_dict(torch.load(contrastive_model_path, map_location=device))
+            print(f"Loaded pre-trained contrastive model from '{contrastive_model_path}'")
+        else:
+            print(f"Starting training from scratch...")
+
         for epoch in range(CONTRASTIVE_EPOCHS):
             epoch_start_time = time.time()
             
@@ -382,6 +390,7 @@ def main():
                 if patience_counter >= PATIENCE:
                     print(f"Early stopping triggered after {epoch+1} epochs")
                     break
+            # torch.mps.empty_cache()
 
         # Load best model
         contrastive_model.load_state_dict(torch.load(contrastive_model_path, map_location=device))
