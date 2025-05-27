@@ -267,7 +267,7 @@ def main():
 
     # Contrastive Learning Hyperparameters
     PROJECTION_DIM = 128
-    CONTRASTIVE_BATCH_SIZE = 64
+    CONTRASTIVE_BATCH_SIZE = 32
     CONTRASTIVE_EPOCHS = 100
     CONTRASTIVE_LR = 2e-5
     TEMPERATURE = 0.07
