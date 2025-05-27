@@ -266,7 +266,7 @@ def main():
     MAX_TOKEN_LENGTH = 512
 
     # Contrastive Learning Hyperparameters
-    PROJECTION_DIM = 256
+    PROJECTION_DIM = 128
     CONTRASTIVE_BATCH_SIZE = 64
     CONTRASTIVE_EPOCHS = 100
     CONTRASTIVE_LR = 2e-5
@@ -281,7 +281,8 @@ def main():
     EMBEDDING_BATCH_SIZE = 64
 
     # device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")  # Force CPU for compatibility
     print(f"Using device: {device}")
 
     # Load datasets
