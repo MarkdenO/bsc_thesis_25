@@ -315,7 +315,7 @@ def main():
     print("\n1: Contrastive Pre-training with Validation")
 
     contrastive_model = ContrastiveCodeModel(CODEBERT_MODEL_NAME, PROJECTION_DIM).to(device)
-    contrastive_model_path = 'full_contrastive_encoder_model_with_validation2.pth'
+    contrastive_model_path = 'full_contrastive_encoder_model_with_validation_128_64.pth'
 
     if not skip_contrastive_training:
         # Create datasets and dataloaders
