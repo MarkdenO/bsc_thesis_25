@@ -6,3 +6,5 @@ Pygments
 pandas
 torch
 modernize
+plotly
+umap-learn
