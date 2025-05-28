@@ -416,12 +416,12 @@ def main():
         'estimator__max_iter': [100, 200]
     }
 
-    # # Train Random Forest with GridSearchCV
-    # rf_model = train_model_with_cv(train_data, test_data, LABEL_COLUMNS, 'Data', RandomForestClassifier, param_grid_rf, model_name="rf_model")
-    # # Save the model and vectorizer
-    # os.makedirs('models', exist_ok=True)
-    # joblib.dump(rf_model, 'models/rf_model.joblib')
-    # joblib.dump(rf_model, 'models/rf_vectorizer.joblib')
+    # Train Random Forest with GridSearchCV
+    rf_model = train_model_with_cv(train_data, test_data, LABEL_COLUMNS, 'Data', RandomForestClassifier, param_grid_rf, model_name="rf_model")
+    # Save the model and vectorizer
+    os.makedirs('models', exist_ok=True)
+    joblib.dump(rf_model, 'models/rf_model.joblib')
+    joblib.dump(rf_model, 'models/rf_vectorizer.joblib')
 
     # Train Bag of Words Classifier
     bow_model = train_model_with_cv(train_data, test_data, LABEL_COLUMNS, 'Data', LogisticRegression, param_grid_lr, model_name="bow_model")
