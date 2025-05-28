@@ -302,7 +302,7 @@
 from sklearn.model_selection import GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.multiclass import OneVsRestClassifier
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, hamming_loss
 import joblib
 import os
 import numpy as np
@@ -390,6 +390,9 @@ def train_model_with_cv(train_data, test_data, label_columns, text_column, model
     print("Exact match accuracy:", accuracy_score(Y_test, Y_pred))
     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
     print("At least one correct prediction:", at_least_one_correct_test)
+
+    # Hamming loss
+    print("Hamming loss:", hamming_loss(Y_test, Y_pred))
 
     # Save model and vectorizer
     os.makedirs('models', exist_ok=True)
