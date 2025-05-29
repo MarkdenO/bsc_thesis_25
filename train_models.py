@@ -309,12 +309,19 @@ import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
+import re
 
 
 LABEL_COLUMNS = [
     'Warm', 'Gram', 'Str', 'Math', 'Sptl', 'Img', 'Cell', 'Grid', 'Grph', 'Path', 'BFS', 'DFS',
     'Dyn', 'Memo', 'Opt', 'Log', 'Bit', 'VM', 'Rev', 'Sim', 'Inp', 'Scal'
 ]
+
+
+def code_tokenizer(code):
+    tokens = re.findall(r'\w+|[+\-*/=<>!&|]+|\d+|[(){}\[\];,.]', code)
+    return tokens
+
 
 def load_datasets(data_type=''):
     train_path = os.path.join('datasets', f'train{data_type}.json')
@@ -339,7 +346,7 @@ def preprocess(df):
             if label in LABEL_COLUMNS:
                 Y.at[i, label] = 1
 
-    vectorizer = CountVectorizer()
+    vectorizer = CountVectorizer(tokenizer=code_tokenizer, lowercase=False, token_pattern=None)
     X_vect = vectorizer.fit_transform(X)
     return X_vect, Y, vectorizer
 
@@ -391,6 +398,19 @@ def train_model_with_cv(train_data, test_data, label_columns, text_column, model
     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
     print("At least one correct prediction:", at_least_one_correct_test)
 
+    # Evaluate on test set per DataSource
+    data_sources = test_data['DataSource'].unique()
+    for source in data_sources:
+        X_test_source = test_data[test_data['DataSource'] == source]
+        X_test_vect, Y_test_source = preprocess_with_existing_vectorizer(X_test_source, vectorizer)
+        Y_pred_source = best_model.predict(X_test_vect)
+        print(f"\n{model_name} Classification Report for DataSource '{source}':")
+        print(classification_report(Y_test_source, Y_pred_source, target_names=label_columns, zero_division=0))
+        print("Exact match accuracy for DataSource '{}':".format(source), accuracy_score(Y_test_source, Y_pred_source))
+        print("At least one correct prediction for DataSource '{}':".format(source),
+              np.sum(np.sum((Y_test_source == 1) & (Y_pred_source == 1), axis=1) > 0) / len(Y_test_source))
+        print("Hamming loss for DataSource '{}':".format(source), hamming_loss(Y_test_source, Y_pred_source))
+
     # Hamming loss
     print("Hamming loss:", hamming_loss(Y_test, Y_pred))
 
@@ -419,22 +439,34 @@ def main():
         'estimator__max_iter': [100, 200]
     }
 
-    # Train Random Forest with GridSearchCV
-    rf_model = train_model_with_cv(train_data, test_data, LABEL_COLUMNS, 'Data', RandomForestClassifier, param_grid_rf, model_name="rf_model")
-    # Save the model and vectorizer
-    os.makedirs('models', exist_ok=True)
-    joblib.dump(rf_model, 'models/rf_model.joblib')
-    joblib.dump(rf_model, 'models/rf_vectorizer.joblib')
+    params_ngrams = {
+        'estimator__n_estimators': [100],
+        'estimator__max_depth': [None],
+        'estimator__min_samples_split': [2],
+        'estimator__min_samples_leaf': [1]
+    }
+
+    params_bow = {
+        'estimator__C': [10],
+        'estimator__max_iter': [200]
+    }
+
+    # # Train Random Forest with GridSearchCV
+    # rf_model = train_model_with_cv(train_data, test_data, LABEL_COLUMNS, 'Data', RandomForestClassifier, param_grid_rf, model_name="rf_model")
+    # # Save the model and vectorizer
+    # os.makedirs('models', exist_ok=True)
+    # joblib.dump(rf_model, 'models/rf_model.joblib')
+    # joblib.dump(rf_model, 'models/rf_vectorizer.joblib')
 
     # Train Bag of Words Classifier
-    bow_model = train_model_with_cv(train_data, test_data, LABEL_COLUMNS, 'Data', LogisticRegression, param_grid_lr, model_name="bow_model")
+    bow_model = train_model_with_cv(train_data, test_data, LABEL_COLUMNS, 'Data', LogisticRegression, params_bow, model_name="bow_model")
     # Save the model and vectorizer
     os.makedirs('models', exist_ok=True)
     joblib.dump(bow_model, 'models/bow_model.joblib')
     joblib.dump(bow_model, 'models/bow_vectorizer.joblib')
 
     # Train Ngram model
-    ngram_model = train_model_with_cv(train_ngrams, test_ngrams, LABEL_COLUMNS, 'Data', RandomForestClassifier, param_grid_rf, model_name="ngram_model")
+    ngram_model = train_model_with_cv(train_ngrams, test_ngrams, LABEL_COLUMNS, 'Data', RandomForestClassifier, params_ngrams, model_name="ngram_model")
     # Save the model and vectorizer
     os.makedirs('models', exist_ok=True)
     joblib.dump(ngram_model, 'models/ngram_rf_model.joblib')
