@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, hamming_loss
 import numpy as np
 from transformers import RobertaTokenizer, RobertaModel
 import pickle
@@ -77,6 +77,9 @@ def create_tsne(X_train, X_train_embedded, y_train, mlb):
             'Label': labels_text_train,
             'Code Snippet': truncated_code_snippets_train
         })
+
+        # Save tsne results and metadata to csv
+        tsne_df_train.to_csv("illustrations/tsne_train_embeddings4.csv", index=False)
         
         os.makedirs("illustrations", exist_ok=True)
         fig = px.scatter(
@@ -262,6 +265,10 @@ def main():
     TRAIN_PATH = './datasets/train.json'
     VAL_PATH = './datasets/val.json'
     TEST_PATH = './datasets/test.json'
+
+    TEST_LB = './datasets/test_leaderboard.json'
+    TEST_GITHUB = './datasets/test_github.json'
+    TEST_REDDIT = './datasets/test_reddit.json'
     
     MAX_TOKEN_LENGTH = 512
 
@@ -289,6 +296,16 @@ def main():
     print("Loading datasets...")
     X_train, y_train_labels = load_dataset(TRAIN_PATH)
     X_val, y_val_labels = load_dataset(VAL_PATH)
+
+    test_datasources = True
+
+    if test_datasources:
+        print("Loading test datasets for different sources...")
+        X_test_lb, y_test_lb_labels = load_dataset(TEST_LB)
+        X_test_github, y_test_github_labels = load_dataset(TEST_GITHUB)
+        X_test_reddit, y_test_reddit_labels = load_dataset(TEST_REDDIT)
+
+  
     X_test, y_test_labels = load_dataset(TEST_PATH)
 
     # Create MultiLabelBinarizer and fit on all labels
@@ -301,6 +318,12 @@ def main():
     y_train = mlb.transform(y_train_labels)
     y_val = mlb.transform(y_val_labels)
     y_test = mlb.transform(y_test_labels)
+
+    if test_datasources:
+        y_test_lb = mlb.transform(y_test_lb_labels)
+        y_test_github = mlb.transform(y_test_github_labels)
+        y_test_reddit = mlb.transform(y_test_reddit_labels)
+
     
     num_classes = y_train.shape[1]
     print(f"Train size: {len(X_train)}, Validation size: {len(X_val)}, Test size: {len(X_test)}")
@@ -309,7 +332,7 @@ def main():
 
     tokenizer = RobertaTokenizer.from_pretrained(CODEBERT_MODEL_NAME)
 
-    skip_contrastive_training = False
+    skip_contrastive_training = True
 
     # Contrastive pre-training with validation
     print("\n1: Contrastive Pre-training with Validation")
@@ -414,6 +437,22 @@ def main():
     print("\n2: Downstream Classification with Validation")
     contrastive_model.eval()
 
+    if test_datasources:
+        # Create embedding datasets and dataloaders for test sources
+        test_lb_embedding_dataset = ContrastiveCodeDataset(X_test_lb, y_test_lb, tokenizer, MAX_TOKEN_LENGTH)
+        test_github_embedding_dataset = ContrastiveCodeDataset(X_test_github, y_test_github, tokenizer, MAX_TOKEN_LENGTH)
+        test_reddit_embedding_dataset = ContrastiveCodeDataset(X_test_reddit, y_test_reddit, tokenizer, MAX_TOKEN_LENGTH)
+
+        test_lb_embedding_loader = DataLoader(test_lb_embedding_dataset, batch_size=EMBEDDING_BATCH_SIZE, shuffle=False, num_workers=0)
+        test_github_embedding_loader = DataLoader(test_github_embedding_dataset, batch_size=EMBEDDING_BATCH_SIZE, shuffle=False, num_workers=0)
+        test_reddit_embedding_loader = DataLoader(test_reddit_embedding_dataset, batch_size=EMBEDDING_BATCH_SIZE, shuffle=False, num_workers=0)
+        print("Generating embeddings for test sources...")
+        X_test_lb_embedded = get_embeddings(contrastive_model, test_lb_embedding_loader, device)
+        X_test_github_embedded = get_embeddings(contrastive_model, test_github_embedding_loader, device)
+        X_test_reddit_embedded = get_embeddings(contrastive_model, test_reddit_embedding_loader, device)
+        print(f"Generated embeddings - Test LB: {X_test_lb_embedded.shape}, Test GitHub: {X_test_github_embedded.shape}, Test Reddit: {X_test_reddit_embedded.shape}")
+
+
     # Create embedding datasets and dataloaders
     train_embedding_dataset = ContrastiveCodeDataset(X_train, y_train, tokenizer, MAX_TOKEN_LENGTH)
     val_embedding_dataset = ContrastiveCodeDataset(X_val, y_val, tokenizer, MAX_TOKEN_LENGTH)
@@ -433,7 +472,7 @@ def main():
 
     # Visualization
     run_tsne = False
-    run_umap = True
+    run_umap = False
     if run_tsne:
         create_tsne(X_train, X_train_embedded, y_train, mlb)
     elif run_umap:
@@ -443,9 +482,9 @@ def main():
     print("Training downstream classifier with validation optimization...")
     
     # Try different hyperparameters
-    n_estimators_options = [100, 200]
-    max_depth_options = [5, 10]
-    min_samples_split_options = [2, 5]
+    n_estimators_options = [100]
+    max_depth_options = [10]
+    min_samples_split_options = [5]
 
     best_val_accuracy = 0
     best_params = {}
@@ -488,9 +527,48 @@ def main():
     # Final evaluation on test set
     print("\n3: Final Evaluation on Test Set")
     test_metrics = evaluate_downstream_classifier(best_clf, X_test_embedded, y_test, mlb)
+
+    if test_datasources:
+        test_metrics_lb = evaluate_downstream_classifier(best_clf, X_test_lb_embedded, y_test_lb, mlb)
+        test_metrics_github = evaluate_downstream_classifier(best_clf, X_test_github_embedded, y_test_github, mlb)
+        test_metrics_reddit = evaluate_downstream_classifier(best_clf, X_test_reddit_embedded, y_test_reddit, mlb)
+
+        print("\nTest Metrics for Leaderboard Data:")
+        print(f"Exact Match Accuracy: {test_metrics_lb['exact_match_accuracy']:.4f}")
+        print(f"At Least One Correct: {test_metrics_lb['at_least_one_correct']:.4f}")
+        print(f'Hamming loss: {hamming_loss(y_test_lb, test_metrics_lb["y_pred"]):.4f}')
+        print(classification_report(
+            y_test_lb,
+            test_metrics_lb['y_pred'],
+            target_names=mlb.classes_,
+            zero_division=0
+        ))
+
+        print("\nTest Metrics for GitHub Data:")
+        print(f"Exact Match Accuracy: {test_metrics_github['exact_match_accuracy']:.4f}")
+        print(f"At Least One Correct: {test_metrics_github['at_least_one_correct']:.4f}")
+        print(f'Hamming loss: {hamming_loss(y_test_github, test_metrics_github["y_pred"]):.4f}')
+        print(classification_report(
+            y_test_github,
+            test_metrics_github['y_pred'],
+            target_names=mlb.classes_,
+            zero_division=0
+        ))
+
+        print("\nTest Metrics for Reddit Data:")
+        print(f"Exact Match Accuracy: {test_metrics_reddit['exact_match_accuracy']:.4f}")
+        print(f"At Least One Correct: {test_metrics_reddit['at_least_one_correct']:.4f}")
+        print(f'Hamming loss: {hamming_loss(y_test_reddit, test_metrics_reddit["y_pred"]):.4f}')
+        print(classification_report(
+            y_test_reddit,
+            test_metrics_reddit['y_pred'],
+            target_names=mlb.classes_,
+            zero_division=0
+        ))
     
     print(f"Test exact match accuracy: {test_metrics['exact_match_accuracy']:.4f}")
     print(f"Test at least one correct accuracy: {test_metrics['at_least_one_correct']:.4f}")
+    print(f"Hamming loss: {hamming_loss(y_test, test_metrics['y_pred']):.4f}")
     
     # Detailed classification report
     print("\nDetailed Classification Report (Test Set)")
@@ -501,17 +579,17 @@ def main():
         zero_division=0
     ))
 
-    # Sample predictions
-    print("\nSample Predictions (from Test set)")
-    num_samples_to_show = min(10, len(X_test))
-    for i in range(num_samples_to_show):
-        predicted_labels_for_sample = mlb.inverse_transform(test_metrics['y_pred'][i].reshape(1, -1))
-        true_labels_for_sample = mlb.inverse_transform(y_test[i].reshape(1, -1))
+    # # Sample predictions
+    # print("\nSample Predictions (from Test set)")
+    # num_samples_to_show = min(10, len(X_test))
+    # for i in range(num_samples_to_show):
+    #     predicted_labels_for_sample = mlb.inverse_transform(test_metrics['y_pred'][i].reshape(1, -1))
+    #     true_labels_for_sample = mlb.inverse_transform(y_test[i].reshape(1, -1))
 
-        print(f"\nSample {i+1}:")
-        print(f"  Code Snippet (first 80 chars): {X_test[i][:80]}...")
-        print(f"  Predicted Labels: {predicted_labels_for_sample}")
-        print(f"  True Labels:      {true_labels_for_sample}")
+    #     print(f"\nSample {i+1}:")
+    #     print(f"  Code Snippet (first 80 chars): {X_test[i][:80]}...")
+    #     print(f"  Predicted Labels: {predicted_labels_for_sample}")
+    #     print(f"  True Labels:      {true_labels_for_sample}")
 
     # Save results
     results = {
