@@ -200,4 +200,10 @@ def split_labelled_data(df, output_dir='datasets', seed=42):
     test_df.to_json(os.path.join(output_dir, 'test.json'), orient='records', indent=2)
     print(f"JSON splits saved in '{output_dir}'")
 
-# split_labelled_data(final_df)
+    # Create seperate test.json files for each data source
+    for data_source in df['DataSource'].unique():
+        source_test_df = test_df[test_df['DataSource'] == data_source]
+        source_test_df.to_json(os.path.join(output_dir, f'test_{data_source}.json'), orient='records', indent=2)
+        print(f"Test split for '{data_source}' saved as 'test_{data_source}.json'")
+
+split_labelled_data(final_df)
