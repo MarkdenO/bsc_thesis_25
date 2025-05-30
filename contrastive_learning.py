@@ -288,8 +288,8 @@ def main():
     EMBEDDING_BATCH_SIZE = 64
 
     # device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cpu")  # Force CPU for compatibility
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cpu")  # Force CPU for compatibility
     print(f"Using device: {device}")
 
     # Load datasets
