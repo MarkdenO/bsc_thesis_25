@@ -269,6 +269,9 @@ def main():
     TEST_LB = './datasets/test_leaderboard.json'
     TEST_GITHUB = './datasets/test_github.json'
     TEST_REDDIT = './datasets/test_reddit.json'
+
+    MULTI_LABEL_TEST_PATH = './datasets/test_multi.json'
+    SINGLE_LABEL_TEST_PATH = './datasets/test_single.json'
     
     MAX_TOKEN_LENGTH = 512
 
@@ -297,13 +300,21 @@ def main():
     X_train, y_train_labels = load_dataset(TRAIN_PATH)
     X_val, y_val_labels = load_dataset(VAL_PATH)
 
-    test_datasources = True
+    test_datasources = False
 
     if test_datasources:
         print("Loading test datasets for different sources...")
         X_test_lb, y_test_lb_labels = load_dataset(TEST_LB)
         X_test_github, y_test_github_labels = load_dataset(TEST_GITHUB)
         X_test_reddit, y_test_reddit_labels = load_dataset(TEST_REDDIT)
+
+    test_diff_labels = True
+
+    if test_diff_labels:
+        print("Loading test dataset with different amount labels...")
+        # Load test dataset with different labels
+        X_test_multi, y_test_multi_labels = load_dataset(MULTI_LABEL_TEST_PATH)
+        X_test_single, y_test_single_labels = load_dataset(SINGLE_LABEL_TEST_PATH)
 
   
     X_test, y_test_labels = load_dataset(TEST_PATH)
@@ -323,6 +334,10 @@ def main():
         y_test_lb = mlb.transform(y_test_lb_labels)
         y_test_github = mlb.transform(y_test_github_labels)
         y_test_reddit = mlb.transform(y_test_reddit_labels)
+
+    if test_diff_labels:
+        y_test_multi = mlb.transform(y_test_multi_labels)
+        y_test_single = mlb.transform(y_test_single_labels)
 
     
     num_classes = y_train.shape[1]
@@ -452,6 +467,19 @@ def main():
         X_test_reddit_embedded = get_embeddings(contrastive_model, test_reddit_embedding_loader, device)
         print(f"Generated embeddings - Test LB: {X_test_lb_embedded.shape}, Test GitHub: {X_test_github_embedded.shape}, Test Reddit: {X_test_reddit_embedded.shape}")
 
+    if test_diff_labels:
+        # Create embedding datasets and dataloaders for different label tests
+        test_multi_embedding_dataset = ContrastiveCodeDataset(X_test_multi, y_test_multi, tokenizer, MAX_TOKEN_LENGTH)
+        test_single_embedding_dataset = ContrastiveCodeDataset(X_test_single, y_test_single, tokenizer, MAX_TOKEN_LENGTH)
+
+        test_multi_embedding_loader = DataLoader(test_multi_embedding_dataset, batch_size=EMBEDDING_BATCH_SIZE, shuffle=False, num_workers=0)
+        test_single_embedding_loader = DataLoader(test_single_embedding_dataset, batch_size=EMBEDDING_BATCH_SIZE, shuffle=False, num_workers=0)
+
+        print("Generating embeddings for multi-label and single-label tests...")
+        X_test_multi_embedded = get_embeddings(contrastive_model, test_multi_embedding_loader, device)
+        X_test_single_embedded = get_embeddings(contrastive_model, test_single_embedding_loader, device)
+        print(f"Generated embeddings - Test Multi: {X_test_multi_embedded.shape}, Test Single: {X_test_single_embedded.shape}")
+
 
     # Create embedding datasets and dataloaders
     train_embedding_dataset = ContrastiveCodeDataset(X_train, y_train, tokenizer, MAX_TOKEN_LENGTH)
@@ -562,6 +590,32 @@ def main():
         print(classification_report(
             y_test_reddit,
             test_metrics_reddit['y_pred'],
+            target_names=mlb.classes_,
+            zero_division=0
+        ))
+
+    if test_diff_labels:
+        test_metrics_multi = evaluate_downstream_classifier(best_clf, X_test_multi_embedded, y_test_multi, mlb)
+        test_metrics_single = evaluate_downstream_classifier(best_clf, X_test_single_embedded, y_test_single, mlb)
+
+        print("\nTest Metrics for Multi-Label Data:")
+        print(f"Exact Match Accuracy: {test_metrics_multi['exact_match_accuracy']:.4f}")
+        print(f"At Least One Correct: {test_metrics_multi['at_least_one_correct']:.4f}")
+        print(f'Hamming loss: {hamming_loss(y_test_multi, test_metrics_multi["y_pred"]):.4f}')
+        print(classification_report(
+            y_test_multi,
+            test_metrics_multi['y_pred'],
+            target_names=mlb.classes_,
+            zero_division=0
+        ))
+
+        print("\nTest Metrics for Single-Label Data:")
+        print(f"Exact Match Accuracy: {test_metrics_single['exact_match_accuracy']:.4f}")
+        print(f"At Least One Correct: {test_metrics_single['at_least_one_correct']:.4f}")
+        print(f'Hamming loss: {hamming_loss(y_test_single, test_metrics_single["y_pred"]):.4f}')
+        print(classification_report(
+            y_test_single,
+            test_metrics_single['y_pred'],
             target_names=mlb.classes_,
             zero_division=0
         ))
