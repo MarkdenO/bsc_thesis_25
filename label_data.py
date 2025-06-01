@@ -206,4 +206,11 @@ def split_labelled_data(df, output_dir='datasets', seed=42):
         source_test_df.to_json(os.path.join(output_dir, f'test_{data_source}.json'), orient='records', indent=2)
         print(f"Test split for '{data_source}' saved as 'test_{data_source}.json'")
 
+    # Split test data into single-label and multi-label
+    single_test_df = test_df[test_df['Labels'].apply(lambda x: len(x) == 1 if isinstance(x, list) else False)]
+    multi_test_df = test_df[test_df['Labels'].apply(lambda x: len(x) > 1 if isinstance(x, list) else False)]
+    single_test_df.to_json(os.path.join(output_dir, 'test_single.json'), orient='records', indent=2)
+    multi_test_df.to_json(os.path.join(output_dir, 'test_multi.json'), orient='records', indent=2)
+    print("Test data split into single-label and multi-label saved as 'test_single.json' and 'test_multi.json'")
+
 split_labelled_data(final_df)
