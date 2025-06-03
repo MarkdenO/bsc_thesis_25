@@ -11,7 +11,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import hamming_loss, f1_score, precision_score, recall_score
 
 from sklearn.feature_extraction import DictVectorizer
@@ -55,7 +55,7 @@ class ASTNode:
             return False
         return id(self) == id(other)
 
-# Map CSV column labels to standardized technique labels (from original code)
+# Map CSV column labels to standardized labels (from original code)
 LABEL_MAPPING = {
     'Warm': 'warm_up',
     'Gram': 'grammar_parsing',
@@ -140,7 +140,7 @@ class ASTProcessor:
         return custom_node
 
     @staticmethod
-    def extract_paths(ast_root: ASTNode, max_length: int = 6, max_width: int = 3) -> List[PathContext]:
+    def extract_enhanced_paths(ast_root: ASTNode, max_length: int = 6, max_width: int = 3) -> List[PathContext]:
         """Extract path-contexts between AST nodes. All nodes are considered for path endpoints"""
 
         def collect_all_nodes(node: ASTNode) -> List[ASTNode]:
@@ -370,7 +370,7 @@ class AoCDataLoader:
         }
 
 class FeatureExtractor:
-    """Feature extractor combining multiple AST-based features."""
+    """Enhanced feature extractor combining multiple AST-based features."""
 
     def __init__(self, max_features: int = 15000, min_df: int = 2, use_structural: bool = True):
         self.max_features = max_features
@@ -378,14 +378,14 @@ class FeatureExtractor:
         self.use_structural = use_structural
 
         self.pathcontext_vectorizer = TfidfVectorizer(
-            max_features=max_features//2,
+            max_features=max_features//2, # Adjusted relative to total max_features
             min_df=min_df,
             token_pattern=r'[^|→↑↓]+',
             lowercase=False
         )
 
         self.node_type_vectorizer = TfidfVectorizer(
-            max_features=max_features//2,
+            max_features=max_features//2, # Adjusted relative to total max_features
             min_df=min_df,
             token_pattern=r'\b\w+\b',
             lowercase=False
@@ -402,7 +402,7 @@ class FeatureExtractor:
             ast_root = ASTProcessor.ast_to_custom_node(python_ast)
 
             # Extract path contexts
-            path_contexts = ASTProcessor.extract_paths(ast_root)
+            path_contexts = ASTProcessor.extract_enhanced_paths(ast_root)
 
             # Extract different feature strings
             full_contexts = []
@@ -430,7 +430,7 @@ class FeatureExtractor:
             )
 
         except Exception as e:
-            print(f"Error processing solution {solution}: {e}")
+            print(f"Error processing solution: {e}") # Removed solution object from log for brevity
             return "empty_contexts", "empty_nodetypes", {}
 
     def fit_transform(self, solutions: List[CodeSolution]) -> sp.csr_matrix:
@@ -455,30 +455,54 @@ class FeatureExtractor:
 
         # Add structural features
         if self.use_structural and structural_features_list:
-            dict_vectorizer = DictVectorizer(sparse=True)
-            structural_matrix = dict_vectorizer.fit_transform(structural_features_list)
-            matrices.append(structural_matrix)
-            self.dict_vectorizer = dict_vectorizer
+            # Filter out empty dicts to prevent DictVectorizer issues if all are empty
+            valid_structural_features = [s for s in structural_features_list if s]
+            if valid_structural_features:
+                dict_vectorizer = DictVectorizer(sparse=True)
+                # Fit only on non-empty dicts, then transform all (empty ones become all-zero rows)
+                if any(structural_features_list): # Ensure there's something to fit
+                    structural_matrix = dict_vectorizer.fit_transform(structural_features_list)
+                    matrices.append(structural_matrix)
+                    self.dict_vectorizer = dict_vectorizer
+                else: # All structural features were empty
+                    # Create a zero matrix of appropriate shape if needed, or DictVectorizer might handle this.
+                    # For simplicity, we just note it and DictVectorizer might not be set.
+                    print("Warning: All structural features are empty. Structural matrix will not be added.")
+            else:
+                print("Warning: No valid structural features found.")
+
 
         # Combine all features
+        if not matrices: # Should not happen with pathcontext and node_type always present
+             print("Warning: No feature matrices to combine.")
+             # Return an empty sparse matrix with correct number of rows
+             return sp.csr_matrix((len(solutions), 0))
+
+
         combined_features = sp.hstack(matrices, format='csr')
 
-        if combined_features.shape[1] > self.max_features :
+        # Ensure max_features for TF-IDF is respected *after* hstack if desired,
+        # or rely on individual vectorizer max_features.
+        # Current logic: individual vectorizers control their features, then VarianceThreshold.
+
+        if combined_features.shape[1] > self.max_features : # Check if total combined features exceed overall max_features
             print(f"Applying VarianceThreshold for feature selection: {combined_features.shape[1]} features initially.")
-            self.feature_selector = VarianceThreshold(threshold=(0.001 * (1 - 0.001)))
+            # A very small threshold to remove zero-variance (or near zero-variance) features
+            self.feature_selector = VarianceThreshold(threshold=(0.0001 * (1 - 0.0001))) 
             try:
                 selected_features = self.feature_selector.fit_transform(combined_features)
                 print(f"Features after VarianceThreshold: {selected_features.shape[1]}")
                 if selected_features.shape[1] == 0 and combined_features.shape[1] > 0:
                     print("Warning: VarianceThreshold removed all features. Using original combined features.")
                     selected_features = combined_features
-                    self.feature_selector = None
+                    self.feature_selector = None # Disable selector if it removes everything
             except Exception as e:
                 print(f"Error during VarianceThreshold: {e}. Using original combined features.")
                 selected_features = combined_features
                 self.feature_selector = None
         else:
             selected_features = combined_features
+            self.feature_selector = None # Explicitly set to None if not used
 
         self.fitted = True
         print(f"Final feature matrix shape: {selected_features.shape}")
@@ -505,9 +529,13 @@ class FeatureExtractor:
 
         matrices = [pathcontext_matrix, node_type_matrix]
 
-        if self.use_structural and hasattr(self, 'dict_vectorizer'):
+        if self.use_structural and hasattr(self, 'dict_vectorizer') and self.dict_vectorizer:
             structural_matrix = self.dict_vectorizer.transform(structural_features_list)
             matrices.append(structural_matrix)
+        
+        if not matrices: # Should not happen
+             print("Warning: No feature matrices to combine in transform.")
+             return sp.csr_matrix((len(solutions), 0))
 
         combined_features = sp.hstack(matrices, format='csr')
 
@@ -530,11 +558,13 @@ class AoCClassifier:
     def __init__(self, n_estimators: int = 500, max_depth: int = 25,
                  min_samples_split: int = 4, class_weight: str = 'balanced_subsample',
                  threshold: float = 0.3):
+        # These hyperparameters are defaults if GridSearchCV is not used,
+        # or can be part of the search grid.
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
-        self.class_weight = class_weight
-        self.threshold = threshold
+        self.class_weight = class_weight # This can be passed to RFC within GridSearchCV
+        self.threshold = threshold # Used for prediction, not training RF
 
         self.feature_extractor = FeatureExtractor()
         self.label_binarizer = MultiLabelBinarizer(classes=SOLUTION_LABELS)
@@ -542,13 +572,10 @@ class AoCClassifier:
         self.fitted = False
 
     def fit(self, solutions: List[CodeSolution]):
-        """Train the classifier"""
-        print(f"Training classifier on {len(solutions)} solutions...")
+        """Train the classifier using GridSearchCV for hyperparameter tuning."""
+        print(f"Training enhanced classifier on {len(solutions)} solutions with GridSearchCV...")
 
-        # Extract features
         X = self.feature_extractor.fit_transform(solutions)
-
-        # Prepare labels
         y_labels = [sol.labels for sol in solutions]
         y = self.label_binarizer.fit_transform(y_labels)
 
@@ -561,27 +588,57 @@ class AoCClassifier:
             print("Error: No features to train on after feature extraction.")
             return
 
-        # Train one classifier per label
+        # Define the parameter grid
+        param_grid = {
+            'n_estimators': [50, 100, 150],  # Number of trees
+            'max_depth': [10, 20, None],  # Max depth of trees
+            'min_samples_split': [2, 5, 10],  # Min samples to split a node
+            'min_samples_leaf': [1, 2, 4],   # Min samples in a leaf node
+            'class_weight': [self.class_weight, 'balanced']
+        }
+        
+        # Base RandomForestClassifier
+        base_rf_clf = RandomForestClassifier(random_state=42, bootstrap=True, max_features='sqrt', n_jobs=1)
+
         for i, technique in enumerate(self.label_binarizer.classes_):
             positive_samples = np.sum(y[:, i])
             if positive_samples > 1:
-                print(f"Training classifier for {technique} ({positive_samples} positive samples)")
+                print(f"Training classifier for {technique} ({positive_samples} positive samples) using GridSearchCV...")
 
-                clf = RandomForestClassifier(
-                    n_estimators=self.n_estimators,
-                    max_depth=self.max_depth,
-                    min_samples_split=self.min_samples_split,
-                    class_weight=self.class_weight,
-                    random_state=42,
+                grid_search = GridSearchCV(
+                    estimator=base_rf_clf,
+                    param_grid=param_grid,
+                    scoring='f1', 
+                    cv=3,        
                     n_jobs=-1,
-                    bootstrap=True,
-                    max_features='sqrt'
+                    verbose=1 
                 )
-                clf.fit(X, y[:, i])
-                self.classifiers[technique] = clf
-            else:
-                print(f"Skipping {technique} (insufficient positive samples: {positive_samples})")
+                
+                try:
+                    grid_search.fit(X, y[:, i])
+                    self.classifiers[technique] = grid_search.best_estimator_
+                    print(f"  Best F1 score for {technique}: {grid_search.best_score_:.4f}")
+                    print(f"  Best params for {technique}: {grid_search.best_params_}")
+                except Exception as e:
+                    print(f"Error during GridSearchCV for {technique}: {e}")
+                    print(f"  Falling back to default parameters for {technique}.")
+                    # Fallback to default classifier if GridSearchCV fails
+                    fallback_clf = RandomForestClassifier(
+                        n_estimators=self.n_estimators,
+                        max_depth=self.max_depth,
+                        min_samples_split=self.min_samples_split,
+                        class_weight=self.class_weight, 
+                        random_state=42,
+                        n_jobs=-1, #
+                        bootstrap=True,
+                        max_features='sqrt'
+                    )
+                    fallback_clf.fit(X, y[:,i])
+                    self.classifiers[technique] = fallback_clf
 
+            else:
+                print(f"Skipping {technique} (insufficient positive samples: {positive_samples}) for GridSearchCV.")
+        
         self.fitted = True
         print(f"Training completed! Trained {len(self.classifiers)} classifiers.")
 
@@ -646,35 +703,6 @@ class AoCClassifier:
             predictions.append(predicted_labels)
         return predictions
 
-    def predict(self, solutions: List[CodeSolution], threshold: Optional[float] = None) -> List[List[str]]:
-        """Predict technique labels for solutions."""
-        if threshold is None:
-            threshold = self.threshold
-
-        if not solutions:
-            return []
-            
-        probabilities = self.predict_proba(solutions)
-        if probabilities.shape[0] == 0:
-             return [[] for _ in solutions]
-
-        predictions = []
-
-        for prob_row in probabilities:
-            predicted_labels = []
-            for i, prob in enumerate(prob_row):
-                if prob >= threshold:
-                    predicted_labels.append(self.label_binarizer.classes_[i])
-
-            if not predicted_labels and np.any(prob_row > 0.0) and np.max(prob_row) > 0.1 :
-                best_idx = np.argmax(prob_row)
-                if prob_row[best_idx] > 0.1:
-                    predicted_labels.append(self.label_binarizer.classes_[best_idx])
-
-            predictions.append(predicted_labels)
-
-        return predictions
-
 class ClassificationEvaluator:
     """Enhanced evaluator with detailed metrics"""
 
@@ -701,59 +729,74 @@ class ClassificationEvaluator:
                 combined_labels = set(mlb.classes_)
                 for lst in y_pred:
                     combined_labels.update(lst)
-                mlb = MultiLabelBinarizer(classes=sorted(combined_labels))
-                y_true_bin = mlb.fit_transform(y_true)
-                y_pred_bin = mlb.transform(y_pred)
-            return mlb, y_true_bin, y_pred_bin
+                mlb_new = MultiLabelBinarizer(classes=sorted(list(combined_labels)))
+                y_true_bin = mlb_new.fit_transform(y_true) 
+                y_pred_bin = mlb_new.transform(y_pred)
+                print(f"  Original labels: {current_labels}, New labels for binarization: {mlb_new.classes_}")
+                current_labels = mlb_new.classes_ # Update to the set used
+            return mlb, y_true_bin, y_pred_bin, current_labels
 
-        def compute_metrics(y_true_samples, y_pred_samples, labels, prefix=""):
+
+        def compute_metrics(y_true_samples, y_pred_samples, labels_for_metric_calc, original_labels_for_reporting, prefix=""):
             """Compute all metrics for a given set of samples."""
             if not y_true_samples:
                 return {}
                 
-            _, y_true_bin, y_pred_bin = safe_binarize(y_true_samples, y_pred_samples, labels)
+            # Binarize using the potentially expanded label set from safe_binarize
+            _, y_true_bin, y_pred_bin, actual_binarized_labels = safe_binarize(y_true_samples, y_pred_samples, labels_for_metric_calc)
             
-            # Compute per label F1 scores
-            per_label_f1 = f1_score(y_true_bin, y_pred_bin, average=None, zero_division=0)
+            # Compute per label F1 scores based on actual_binarized_labels
+            per_label_f1_all = f1_score(y_true_bin, y_pred_bin, average=None, zero_division=0)
             
+            # Map F1 scores back to original_labels_for_reporting, if they differ
+            per_technique_f1_reported = {}
+            for label in original_labels_for_reporting:
+                try:
+                    idx_in_actual = actual_binarized_labels.index(label)
+                    per_technique_f1_reported[label] = float(per_label_f1_all[idx_in_actual])
+                except ValueError: 
+                    per_technique_f1_reported[label] = 0.0
+
+
             metrics = {
                 'hamming_loss': hamming_loss(y_true_bin, y_pred_bin),
                 'f1_micro': f1_score(y_true_bin, y_pred_bin, average='micro', zero_division=0),
-                'f1_macro': f1_score(y_true_bin, y_pred_bin, average='macro', zero_division=0),
-                'f1_weighted': f1_score(y_true_bin, y_pred_bin, average='weighted', zero_division=0),
+                'f1_macro': f1_score(y_true_bin, y_pred_bin, average='macro', zero_division=0), 
+                'f1_weighted': f1_score(y_true_bin, y_pred_bin, average='weighted', zero_division=0), 
                 'precision_micro': precision_score(y_true_bin, y_pred_bin, average='micro', zero_division=0),
                 'precision_macro': precision_score(y_true_bin, y_pred_bin, average='macro', zero_division=0),
                 'recall_micro': recall_score(y_true_bin, y_pred_bin, average='micro', zero_division=0),
                 'recall_macro': recall_score(y_true_bin, y_pred_bin, average='macro', zero_division=0),
                 'exact_match_ratio': np.mean([set(t) == set(p) for t, p in zip(y_true_samples, y_pred_samples)]),
                 'one_correct_accuracy': np.mean([1 if set(t) & set(p) else 0 for t, p in zip(y_true_samples, y_pred_samples)]),
-                'per_technique_f1': {
-                    label: float(score) for label, score in zip(labels, per_label_f1)
+                'per_technique_f1': per_technique_f1_reported,
+                'label_frequency': { 
+                    'true_counts': Counter(l for sublist in y_true_samples for l in sublist if l in original_labels_for_reporting),
+                    'pred_counts': Counter(l for sublist in y_pred_samples for l in sublist if l in original_labels_for_reporting)
                 },
-                'label_frequency': {
-                    'true_counts': dict(zip(labels, np.sum(y_true_bin, axis=0).tolist())),
-                    'pred_counts': dict(zip(labels, np.sum(y_pred_bin, axis=0).tolist()))
-                },
-                'sample_count': len(y_true_samples)
-            }
+                'sample_count': len(y_true_samples),
+                'evaluated_labels_for_metrics': actual_binarized_labels,
+                'reported_labels_for_per_technique': original_labels_for_reporting 
+                }
             
             return metrics
 
         if all_possible_labels:
-            current_labels = all_possible_labels
+            current_labels_for_reporting = all_possible_labels
         elif self.labels:
-            current_labels = self.labels
+            current_labels_for_reporting = self.labels
         else:
             label_set = set()
-            for l in y_true + y_pred:
-                label_set.update(l)
-            current_labels = sorted(label_set)
-            if not current_labels:
-                return {'error': 'No labels to evaluate.'}
+            for l_list in y_true + y_pred: 
+                for l_item in l_list:
+                    label_set.add(l_item)
+            current_labels_for_reporting = sorted(list(label_set))
+            if not current_labels_for_reporting:
+                return {'error': 'No labels to evaluate (all_possible_labels, self.labels, and data y_true/y_pred are empty or contain no labels).'}
+
 
         # Overall metrics
-        overall_metrics = compute_metrics(y_true, y_pred, current_labels)
-        overall_metrics['evaluated_labels'] = current_labels
+        overall_metrics = compute_metrics(y_true, y_pred, current_labels_for_reporting, current_labels_for_reporting)
         
         results = {
             'overall': overall_metrics
@@ -769,12 +812,12 @@ class ClassificationEvaluator:
                 grouped_true[source].append(y_t)
                 grouped_pred[source].append(y_p)
 
-            # Compute metrics for each data source using the same label set
+            # Compute metrics for each data source
             per_datasource_metrics = {}
             for source in grouped_true:
                 y_t = grouped_true[source]
                 y_p = grouped_pred[source]
-                source_metrics = compute_metrics(y_t, y_p, current_labels)
+                source_metrics = compute_metrics(y_t, y_p, current_labels_for_reporting, current_labels_for_reporting)
                 per_datasource_metrics[source] = source_metrics
 
             results['per_datasource'] = per_datasource_metrics
@@ -787,11 +830,12 @@ class ClassificationEvaluator:
                             'hamming_loss', 'exact_match_ratio', 'one_correct_accuracy']
                 
                 for metric in metric_names:
-                    values = [per_datasource_metrics[ds][metric] for ds in per_datasource_metrics]
-                    datasource_summary[f'{metric}_mean'] = np.mean(values)
-                    datasource_summary[f'{metric}_std'] = np.std(values)
-                    datasource_summary[f'{metric}_min'] = np.min(values)
-                    datasource_summary[f'{metric}_max'] = np.max(values)
+                    values = [per_datasource_metrics[ds][metric] for ds in per_datasource_metrics if metric in per_datasource_metrics[ds]]
+                    if values: # Ensure list is not empty
+                        datasource_summary[f'{metric}_mean'] = np.mean(values)
+                        datasource_summary[f'{metric}_std'] = np.std(values)
+                        datasource_summary[f'{metric}_min'] = np.min(values)
+                        datasource_summary[f'{metric}_max'] = np.max(values)
                 
                 results['datasource_summary'] = datasource_summary
 
@@ -808,7 +852,7 @@ class ClassificationEvaluator:
         if 'overall' in results:
             overall = results['overall']
         else:
-            overall = results
+            overall = results # Legacy: if results is just the overall dict
 
         print("\n" + "=" * 70)
         print("      ADVENT OF CODE TECHNIQUE CLASSIFICATION RESULTS")
@@ -816,32 +860,40 @@ class ClassificationEvaluator:
 
         # Overall metrics section
         print(f"Overall Metrics (Total samples: {overall.get('sample_count', 'N/A')}):")
-        print(f"  Hamming Loss:      {overall['hamming_loss']:.4f}")
-        print(f"  F1 Micro:          {overall['f1_micro']:.4f}")
-        print(f"  F1 Macro:          {overall['f1_macro']:.4f}")
-        print(f"  F1 Weighted:       {overall['f1_weighted']:.4f}")
-        print(f"  Precision Micro:   {overall['precision_micro']:.4f}")
-        print(f"  Precision Macro:   {overall['precision_macro']:.4f}")
-        print(f"  Recall Micro:      {overall['recall_micro']:.4f}")
-        print(f"  Recall Macro:      {overall['recall_macro']:.4f}")
-        print(f"  Exact Match Ratio: {overall['exact_match_ratio']:.4f}")
-        print(f"  One-Correct Acc.:  {overall['one_correct_accuracy']:.4f}")
+        print(f"  Hamming Loss:      {overall.get('hamming_loss', 0.0):.4f}")
+        print(f"  F1 Micro:          {overall.get('f1_micro', 0.0):.4f}")
+        print(f"  F1 Macro:          {overall.get('f1_macro', 0.0):.4f} (avg over {len(overall.get('evaluated_labels_for_metrics',[]))} labels)")
+        print(f"  F1 Weighted:       {overall.get('f1_weighted', 0.0):.4f} (avg over {len(overall.get('evaluated_labels_for_metrics',[]))} labels)")
+        print(f"  Precision Micro:   {overall.get('precision_micro', 0.0):.4f}")
+        print(f"  Precision Macro:   {overall.get('precision_macro', 0.0):.4f}")
+        print(f"  Recall Micro:      {overall.get('recall_micro', 0.0):.4f}")
+        print(f"  Recall Macro:      {overall.get('recall_macro', 0.0):.4f}")
+        print(f"  Exact Match Ratio: {overall.get('exact_match_ratio', 0.0):.4f}")
+        print(f"  One-Correct Acc.:  {overall.get('one_correct_accuracy', 0.0):.4f}")
 
         # Per-technique F1 scores
-        evaluated_labels = overall.get('evaluated_labels', 
-                                    overall.get('label_frequency', {}).get('evaluated_labels', []))
-        print(f"\nPer-Technique F1 Scores (evaluated on {len(evaluated_labels)} labels):")
+        reported_labels = overall.get('reported_labels_for_per_technique', [])
+        per_technique_f1_data = overall.get('per_technique_f1', {})
+        
+        print(f"\nPer-Technique F1 Scores (reported for {len(reported_labels)} labels):")
         print("-" * 60)
 
+        # Sort techniques for display
+        # Ensure label frequency data exists and is correctly keyed
+        true_counts_overall = overall.get('label_frequency', {}).get('true_counts', Counter())
+        pred_counts_overall = overall.get('label_frequency', {}).get('pred_counts', Counter())
+
         sorted_techniques = sorted(
-            overall['per_technique_f1'].items(),
-            key=lambda x: (x[1], overall['label_frequency']['true_counts'].get(x[0], 0)),
+            per_technique_f1_data.items(),
+            key=lambda x: (x[1], true_counts_overall.get(x[0], 0)), # Sort by F1, then true count
             reverse=True
         )
+
         for technique, f1 in sorted_techniques:
-            true_count = overall['label_frequency']['true_counts'].get(technique, 0)
-            pred_count = overall['label_frequency']['pred_counts'].get(technique, 0)
+            true_count = true_counts_overall.get(technique, 0)
+            pred_count = pred_counts_overall.get(technique, 0)
             print(f"  {technique:<30}: {f1:.4f} (true: {true_count:>3}, pred: {pred_count:>3})")
+
 
         # Per-datasource metrics
         if 'per_datasource' in results:
@@ -854,23 +906,25 @@ class ClassificationEvaluator:
             # Sort datasources by F1 micro score
             sorted_datasources = sorted(
                 per_ds.items(), 
-                key=lambda x: x[1]['f1_micro'], 
+                key=lambda x: x[1].get('f1_micro', 0.0), 
                 reverse=True
             )
             
             for source, metrics in sorted_datasources:
-                print(f"\nDatasource: {source} ({metrics['sample_count']} samples)")
+                print(f"\nDatasource: {source} ({metrics.get('sample_count','N/A')} samples)")
                 print("-" * 50)
-                print(f"  Hamming Loss:      {metrics['hamming_loss']:.4f}")
-                print(f"  F1 Micro:          {metrics['f1_micro']:.4f}")
-                print(f"  F1 Macro:          {metrics['f1_macro']:.4f}")
-                print(f"  F1 Weighted:       {metrics['f1_weighted']:.4f}")
-                print(f"  Precision Micro:   {metrics['precision_micro']:.4f}")
-                print(f"  Precision Macro:   {metrics['precision_macro']:.4f}")
-                print(f"  Recall Micro:      {metrics['recall_micro']:.4f}")
-                print(f"  Recall Macro:      {metrics['recall_macro']:.4f}")
-                print(f"  Exact Match Ratio: {metrics['exact_match_ratio']:.4f}")
-                print(f"  One-Correct Acc.:  {metrics['one_correct_accuracy']:.4f}")
+                print(f"  Hamming Loss:      {metrics.get('hamming_loss', 0.0):.4f}")
+                print(f"  F1 Micro:          {metrics.get('f1_micro', 0.0):.4f}")
+                # Note which labels were used for macro averages if it differs
+                macro_labels_count = len(metrics.get('evaluated_labels_for_metrics', reported_labels))
+                print(f"  F1 Macro:          {metrics.get('f1_macro', 0.0):.4f} (avg over {macro_labels_count} labels)")
+                print(f"  F1 Weighted:       {metrics.get('f1_weighted', 0.0):.4f} (avg over {macro_labels_count} labels)")
+                print(f"  Precision Micro:   {metrics.get('precision_micro', 0.0):.4f}")
+                print(f"  Precision Macro:   {metrics.get('precision_macro', 0.0):.4f}")
+                print(f"  Recall Micro:      {metrics.get('recall_micro', 0.0):.4f}")
+                print(f"  Recall Macro:      {metrics.get('recall_macro', 0.0):.4f}")
+                print(f"  Exact Match Ratio: {metrics.get('exact_match_ratio', 0.0):.4f}")
+                print(f"  One-Correct Acc.:  {metrics.get('one_correct_accuracy', 0.0):.4f}")
 
             # Summary statistics across datasources
             if 'datasource_summary' in results and len(per_ds) > 1:
@@ -882,7 +936,7 @@ class ClassificationEvaluator:
                 print("Performance Variation Across Datasources:")
                 print("-" * 50)
                 
-                key_metrics = [
+                key_metrics_display = [
                     ('F1 Micro', 'f1_micro'),
                     ('F1 Macro', 'f1_macro'),
                     ('F1 Weighted', 'f1_weighted'),
@@ -891,32 +945,36 @@ class ClassificationEvaluator:
                     ('Exact Match Ratio', 'exact_match_ratio')
                 ]
                 
-                for display_name, metric_key in key_metrics:
-                    mean_val = summary[f'{metric_key}_mean']
-                    std_val = summary[f'{metric_key}_std']
-                    min_val = summary[f'{metric_key}_min']
-                    max_val = summary[f'{metric_key}_max']
+                for display_name, metric_key in key_metrics_display:
+                    mean_val = summary.get(f'{metric_key}_mean', 0.0)
+                    std_val = summary.get(f'{metric_key}_std', 0.0)
+                    min_val = summary.get(f'{metric_key}_min', 0.0)
+                    max_val = summary.get(f'{metric_key}_max', 0.0)
                     print(f"  {display_name:<18}: {mean_val:.4f} ± {std_val:.4f} (range: {min_val:.4f} - {max_val:.4f})")
 
-        # Performance
+        # Performance insights (Best/Worst datasource)
         if 'per_datasource' in results and len(results['per_datasource']) > 1:
             print("\n" + "=" * 70)
             print("                   PERFORMANCE INSIGHTS")
             print("=" * 70)
             
-            # Find best and worst performing data sources
-            best_ds = max(results['per_datasource'].items(), key=lambda x: x[1]['f1_micro'])
-            worst_ds = min(results['per_datasource'].items(), key=lambda x: x[1]['f1_micro'])
+            # Find best and worst performing data sources based on F1 Micro
+            valid_ds_metrics = {ds_name: ds_metric for ds_name, ds_metric in results['per_datasource'].items() if 'f1_micro' in ds_metric}
+            if valid_ds_metrics:
+                best_ds = max(valid_ds_metrics.items(), key=lambda x: x[1]['f1_micro'])
+                worst_ds = min(valid_ds_metrics.items(), key=lambda x: x[1]['f1_micro'])
             
-            print(f"Best performing datasource:  {best_ds[0]} (F1 Micro: {best_ds[1]['f1_micro']:.4f})")
-            print(f"Worst performing datasource: {worst_ds[0]} (F1 Micro: {worst_ds[1]['f1_micro']:.4f})")
+                print(f"Best performing datasource:  {best_ds[0]} (F1 Micro: {best_ds[1]['f1_micro']:.4f})")
+                print(f"Worst performing datasource: {worst_ds[0]} (F1 Micro: {worst_ds[1]['f1_micro']:.4f})")
+            else:
+                print("Not enough data to determine best/worst performing datasources.")
             
 
         print("\n" + "=" * 70)
 
 
-def train_classifier(datasets_dir: str = "../datasets") -> Tuple[Optional[AoCClassifier], Dict[str, Any]]:
-    """Train the classifier using JSON datasets."""
+def train_enhanced_classifier(datasets_dir: str = "../datasets") -> Tuple[Optional[AoCClassifier], Dict[str, Any]]:
+    """Train the enhanced classifier using JSON datasets."""
     global SOLUTION_LABELS
 
     # Load data
@@ -951,9 +1009,9 @@ def train_classifier(datasets_dir: str = "../datasets") -> Tuple[Optional[AoCCla
     if 'val' in splits and splits['val']:
         val_solutions = splits['val']
     else:
-        if len(train_solutions) < 2:
+        if len(train_solutions) < 2: # Need at least 2 samples for train/test split
              print("Warning: Not enough training samples to create a validation split. Using training data for validation.")
-             val_solutions = list(train_solutions)
+             val_solutions = list(train_solutions) # Use a copy
         else:
             train_solutions, val_solutions = train_test_split(train_solutions, test_size=0.2, random_state=42)
 
@@ -961,18 +1019,20 @@ def train_classifier(datasets_dir: str = "../datasets") -> Tuple[Optional[AoCCla
     print(f"Validation set: {len(val_solutions)} solutions")
 
     # Train model
+    # Hyperparameters passed to AoCClassifier constructor act as defaults if GridSearchCV
+    # does not override them or if it fails.
     model = AoCClassifier(
-        n_estimators=300,
-        max_depth=20,
-        min_samples_split=4,
-        class_weight='balanced_subsample',
-        threshold=0.3
+        n_estimators=100, # Default, GridSearchCV will search
+        max_depth=20,      # Default, GridSearchCV will search
+        min_samples_split=5, # Default, GridSearchCV will search
+        class_weight='balanced_subsample', # Can be part of grid search
+        threshold=0.3      # For prediction
     )
 
     model.label_binarizer = MultiLabelBinarizer(classes=current_model_labels)
 
 
-    model.fit(train_solutions)
+    model.fit(train_solutions) # This now uses GridSearchCV internally
     
     evaluation_results = {}
 
@@ -999,6 +1059,7 @@ def train_classifier(datasets_dir: str = "../datasets") -> Tuple[Optional[AoCCla
 
 
         evaluator_test = ClassificationEvaluator(labels=current_model_labels)
+        # Pass data_sources=None if not applicable for the test set, or provide actual sources
         test_results = evaluator_test.evaluate(test_true, test_predictions, all_possible_labels=current_model_labels, data_sources=None)
         print("\nTEST SET RESULTS:")
         evaluator_test.print_evaluation_report(test_results)
@@ -1012,7 +1073,7 @@ def train_classifier(datasets_dir: str = "../datasets") -> Tuple[Optional[AoCCla
 
 if __name__ == "__main__":
     # Train model with JSON datasets
-    print("Training Enhanced AST-based AoC Technique Classifier...")
+    print("Training Enhanced AST-based AoC Technique Classifier with GridSearchCV...")
     
     # Ensure the datasets directory exists or provide a correct path
     datasets_path = Path("../datasets")
@@ -1026,7 +1087,7 @@ if __name__ == "__main__":
 
     print(f"Loading data from {datasets_path.resolve()}")
     
-    model, results = train_classifier(str(datasets_path))
+    model, results = train_enhanced_classifier(str(datasets_path))
 
     if model is not None and model.fitted:
         print("\n" + "="*70)
@@ -1034,7 +1095,7 @@ if __name__ == "__main__":
         print("="*70)
 
         # Save model
-        model_filename = f"models/ast_classifier.joblib"
+        model_filename = f"models/ast_classifier_gridsearch.joblib"
         Path("models").mkdir(parents=True, exist_ok=True)
         joblib.dump(model, model_filename)
         print(f"Model saved to {model_filename}")        
@@ -1044,4 +1105,4 @@ if __name__ == "__main__":
     elif model is not None and not model.fitted:
         print("Model was initialized but training did not complete successfully (e.g. no data or features).")
     else:
-        print("Model training failed. No model was created.")
+        print("Training failed. Please check your dataset files and paths.")
