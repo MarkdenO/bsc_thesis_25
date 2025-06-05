@@ -181,3 +181,7 @@ cython_debug/
 /illustrations/
 *.pth
 /venv3.10/
+*.zip
+*DS_STORE
+*.joblib
+
