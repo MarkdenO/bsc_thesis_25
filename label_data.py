@@ -5,6 +5,10 @@ from sklearn.model_selection import train_test_split
 
 
 def extract_labels(df, year, day):
+    """
+    Extracts labels for a specific year and day from the DataFrame.
+    Returns a list of column names where the value is 'X'.
+    """
     filtered_row = df[(df['Year'] == year) & (df['Day'] == day)]
 
     if filtered_row.empty:

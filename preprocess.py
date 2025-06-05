@@ -68,6 +68,9 @@ def remove_comments_and_docstrings(source):
 
 
 def preprocess_github(data):
+    """
+    Preprocesses the code snippets from GitHub repositories.
+    """
     pp_data = {}
     for day in range(1, 26):
         day_repos = data.get(str(day), {})
@@ -80,6 +83,9 @@ def preprocess_github(data):
 
 
 def preprocess_code_snippet(code):
+    """
+    Preprocesses a code snippet by removing comments, docstrings, and imports.
+    """
 
     # Remove imports
     code = re.sub(r'^\s*(import|from)\s+[^\n]+', '', code, flags=re.MULTILINE)
@@ -90,6 +96,9 @@ def preprocess_code_snippet(code):
 
 
 def preprocess_reddit(data):
+    """
+    Preprocesses the code snippets from Reddit.
+    """
     pp_data = {}
 
     for day in range(1, 26):
@@ -112,6 +121,9 @@ def preprocess_reddit(data):
 
 
 def split_all_data(preprocessed_dir='preprocessed_code', output_dir='datasets'):
+    """
+    Splits all preprocessed data into train, validation, and test sets.
+    """
     import glob
     from collections import defaultdict
     import random
@@ -197,9 +209,6 @@ def main():
     # Split all data into train, validation, and test sets
     split_all_data(preprocessed_dir='preprocessed_code', output_dir='datasets')
     print("Preprocessing complete.")
-
-
-
 
 
 if __name__ == '__main__':

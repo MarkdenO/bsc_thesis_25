@@ -13,9 +13,7 @@ from sklearn.feature_selection import VarianceThreshold
 from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import hamming_loss, f1_score, precision_score, recall_score
-
 from sklearn.feature_extraction import DictVectorizer
-
 from collections import Counter, defaultdict
 
 # Core Data Types
@@ -55,7 +53,7 @@ class ASTNode:
             return False
         return id(self) == id(other)
 
-# Map CSV column labels to standardized technique labels (from original code)
+# Map CSV column labels to standardized labels
 LABEL_MAPPING = {
     'Warm': 'warm_up',
     'Gram': 'grammar_parsing',
@@ -81,7 +79,7 @@ LABEL_MAPPING = {
     'Scal': 'scaling'
 }
 
-# Technique labels based on your original CSV structure
+# Labels
 SOLUTION_LABELS = list(LABEL_MAPPING.values())
 
 class ASTProcessor:
@@ -140,7 +138,7 @@ class ASTProcessor:
         return custom_node
 
     @staticmethod
-    def extract_paths(ast_root: ASTNode, max_length: int = 6, max_width: int = 3) -> List[PathContext]:
+    def extract_paths(ast_root: ASTNode, max_length: int = 6, max_width: int = 2) -> List[PathContext]:
         """Extract path-contexts between AST nodes. All nodes are considered for path endpoints"""
 
         def collect_all_nodes(node: ASTNode) -> List[ASTNode]:
@@ -470,11 +468,11 @@ class FeatureExtractor:
                 selected_features = self.feature_selector.fit_transform(combined_features)
                 print(f"Features after VarianceThreshold: {selected_features.shape[1]}")
                 if selected_features.shape[1] == 0 and combined_features.shape[1] > 0:
-                    print("Warning: VarianceThreshold removed all features. Using original combined features.")
+                    print("Warning: VarianceThreshold removed all features.")
                     selected_features = combined_features
                     self.feature_selector = None
             except Exception as e:
-                print(f"Error during VarianceThreshold: {e}. Using original combined features.")
+                print(f"Error during VarianceThreshold: {e}.")
                 selected_features = combined_features
                 self.feature_selector = None
         else:
@@ -587,7 +585,7 @@ class AoCClassifier:
 
 
     def predict_proba(self, solutions: List[CodeSolution]) -> np.ndarray:
-        """Predict probabilities for each technique."""
+        """Predict probabilities for each label."""
         if not self.fitted:
             raise ValueError("Model must be fitted first")
 
@@ -601,9 +599,9 @@ class AoCClassifier:
 
         probabilities = np.zeros((len(solutions), len(self.label_binarizer.classes_)))
 
-        for i, technique in enumerate(self.label_binarizer.classes_):
-            if technique in self.classifiers:
-                clf = self.classifiers[technique]
+        for i, label in enumerate(self.label_binarizer.classes_):
+            if label in self.classifiers:
+                clf = self.classifiers[label]
                 probs = clf.predict_proba(X)
                 if probs.shape[1] == 2:
                     probabilities[:, i] = probs[:, 1]
@@ -619,7 +617,7 @@ class AoCClassifier:
         return probabilities
 
     def predict(self, solutions: List[CodeSolution], threshold: Optional[float] = None) -> List[List[str]]:
-        """Predict technique labels for solutions"""
+        """Predict labels for solutions"""
         if threshold is None:
             threshold = self.threshold
 
@@ -647,7 +645,7 @@ class AoCClassifier:
         return predictions
 
     def predict(self, solutions: List[CodeSolution], threshold: Optional[float] = None) -> List[List[str]]:
-        """Predict technique labels for solutions."""
+        """Predict labels for solutions."""
         if threshold is None:
             threshold = self.threshold
 
@@ -676,7 +674,7 @@ class AoCClassifier:
         return predictions
 
 class ClassificationEvaluator:
-    """Enhanced evaluator with detailed metrics"""
+    """Evaluator with detailed metrics"""
 
     def __init__(self, labels: List[str] = None):
         self.labels = labels if labels is not None else []
@@ -962,11 +960,11 @@ def train_classifier(datasets_dir: str = "../datasets") -> Tuple[Optional[AoCCla
 
     # Train model
     model = AoCClassifier(
-        n_estimators=300,
+        n_estimators=200,
         max_depth=20,
         min_samples_split=4,
         class_weight='balanced_subsample',
-        threshold=0.3
+        threshold=0.5
     )
 
     model.label_binarizer = MultiLabelBinarizer(classes=current_model_labels)
@@ -1012,18 +1010,13 @@ def train_classifier(datasets_dir: str = "../datasets") -> Tuple[Optional[AoCCla
 
 if __name__ == "__main__":
     # Train model with JSON datasets
-    print("Training Enhanced AST-based AoC Technique Classifier...")
+    print("Training AST-based AoC label Classifier...")
     
     # Ensure the datasets directory exists or provide a correct path
     datasets_path = Path("../datasets")
     if not datasets_path.exists():
         print(f"ERROR: Datasets directory '{datasets_path.resolve()}' not found.")
-        print("Please create it and place train.json, val.json (optional), test.json (optional) inside.")
-        datasets_path.mkdir(parents=True, exist_ok=True)
-        print(f"Created directory: {datasets_path.resolve()}")
-        print("You'll need to populate it with actual data for the model to train.")
-
-
+        
     print(f"Loading data from {datasets_path.resolve()}")
     
     model, results = train_classifier(str(datasets_path))
@@ -1033,15 +1026,9 @@ if __name__ == "__main__":
         print("MODEL TRAINING COMPLETED SUCCESSFULLY!")
         print("="*70)
 
-        # Save model
-        model_filename = f"models/ast_classifier.joblib"
-        Path("models").mkdir(parents=True, exist_ok=True)
-        joblib.dump(model, model_filename)
-        print(f"Model saved to {model_filename}")        
+    # Save model
+    model_filename = f"models/ast_classifier.joblib"
+    Path("models").mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, model_filename)
+    print(f"Model saved to {model_filename}")        
 
-
-
-    elif model is not None and not model.fitted:
-        print("Model was initialized but training did not complete successfully (e.g. no data or features).")
-    else:
-        print("Model training failed. No model was created.")

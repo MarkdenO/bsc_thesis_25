@@ -10,7 +10,6 @@ import tempfile
 import pandas as pd
 import numpy as np
 import networkx as nx
-import contrastive_learning
 from networkx.readwrite import json_graph
 import tokenize
 from io import BytesIO

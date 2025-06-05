@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, accuracy_score, hamming_loss
 import numpy as np
 from transformers import RobertaTokenizer, RobertaModel
@@ -21,7 +20,9 @@ from sklearn.metrics import f1_score
 
 
 def load_dataset(file_path):
-    """Load dataset from JSON file"""
+    """
+    Load dataset from JSON file
+    """
     print(f"Loading dataset from {file_path}...")
     with open(file_path, 'r') as f:
         data = json.load(f)
@@ -55,6 +56,9 @@ def load_dataset(file_path):
 
 
 def create_tsne(X_train, X_train_embedded, y_train, mlb):
+    """
+    Create t-SNE visualization for TRAIN embeddings
+    """
     print("Running t-SNE on TRAIN embeddings...")
     tsne = TSNE(n_components=2, perplexity=min(30, len(X_train_embedded)-1), n_iter=1000, random_state=42, init='pca', learning_rate='auto')
     if len(X_train_embedded) <= tsne.perplexity:
@@ -92,6 +96,9 @@ def create_tsne(X_train, X_train_embedded, y_train, mlb):
 
 
 def create_umap(X_train, X_train_embedded, y_train, mlb):
+    """
+    Create UMAP visualization for TRAIN embeddings
+    """
     print("Running UMAP on TRAIN embeddings...")
 
     if len(X_train_embedded) < 2:
@@ -139,6 +146,9 @@ class SupConLossMultiLabel(nn.Module):
         self.temperature = temperature
 
     def forward(self, features, multi_hot_labels):
+        """
+        Compute the contrastive loss for multi-label classification.
+        """
         device = features.device
         multi_hot_labels = multi_hot_labels.float()
 
@@ -162,6 +172,9 @@ class SupConLossMultiLabel(nn.Module):
         return loss
 
 class ContrastiveCodeModel(nn.Module):
+    """
+    Contrastive model using CodeBERT with a projection head.
+    """
     def __init__(self, codebert_model_name_or_path, projection_dim):
         super().__init__()
         self.codebert = RobertaModel.from_pretrained(codebert_model_name_or_path)
@@ -172,6 +185,9 @@ class ContrastiveCodeModel(nn.Module):
         )
 
     def forward(self, input_ids, attention_mask):
+        """
+        Forward pass through the model.
+        """
         outputs = self.codebert(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden = outputs.last_hidden_state
 
@@ -208,6 +224,9 @@ class ContrastiveCodeDataset(Dataset):
         return input_ids, attention_mask, self.labels[idx]
 
 def get_embeddings(model, dataloader, device):
+    """
+    Generate embeddings for the dataset using the contrastive model.
+    """
     model.eval()
     all_embeddings = []
     with torch.no_grad():
@@ -219,7 +238,9 @@ def get_embeddings(model, dataloader, device):
 
 
 def evaluate_contrastive_model(model, dataloader, loss_fn, device):
-    """Evaluate contrastive model on validation/test set"""
+    """
+    Evaluate contrastive model on validation/test set
+    """
     model.eval()
     total_loss = 0
     num_batches = 0
@@ -238,7 +259,9 @@ def evaluate_contrastive_model(model, dataloader, loss_fn, device):
 
 
 def evaluate_downstream_classifier(clf, X_embedded, y_true, mlb):
-    """Evaluate downstream classifier and return metrics"""
+    """
+    Evaluate downstream classifier and return metrics
+    """
     y_pred = clf.predict(X_embedded)
     
     # Calculate exact match accuracy
@@ -257,7 +280,6 @@ def evaluate_downstream_classifier(clf, X_embedded, y_true, mlb):
     }
 
 
-# main
 def main():
     CODEBERT_MODEL_NAME = 'microsoft/codebert-base'
     
@@ -632,18 +654,6 @@ def main():
         target_names=mlb.classes_,
         zero_division=0
     ))
-
-    # # Sample predictions
-    # print("\nSample Predictions (from Test set)")
-    # num_samples_to_show = min(10, len(X_test))
-    # for i in range(num_samples_to_show):
-    #     predicted_labels_for_sample = mlb.inverse_transform(test_metrics['y_pred'][i].reshape(1, -1))
-    #     true_labels_for_sample = mlb.inverse_transform(y_test[i].reshape(1, -1))
-
-    #     print(f"\nSample {i+1}:")
-    #     print(f"  Code Snippet (first 80 chars): {X_test[i][:80]}...")
-    #     print(f"  Predicted Labels: {predicted_labels_for_sample}")
-    #     print(f"  True Labels:      {true_labels_for_sample}")
 
     # Save results
     results = {

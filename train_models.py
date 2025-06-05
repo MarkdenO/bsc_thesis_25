@@ -1,304 +1,3 @@
-
-# import pandas as pd
-# from sklearn.feature_extraction.text import CountVectorizer
-# from sklearn.model_selection import train_test_split
-# from sklearn.metrics import classification_report
-# from sklearn.svm import LinearSVC
-# from sklearn.ensemble import RandomForestClassifier
-# from sklearn.neighbors import KNeighborsClassifier
-# from sklearn.multioutput import MultiOutputClassifier
-# from sklearn.neural_network import MLPClassifier
-# from sklearn.multioutput import MultiOutputClassifier
-# from sklearn.linear_model import LogisticRegression
-# import numpy as np
-# import joblib
-# import os
-# from contrastive_learning import *
-# from sklearn.multiclass import OneVsRestClassifier
-# from skmultilearn.adapt import MLkNN
-# from scipy.sparse import csr_matrix
-# import re
-
-
-# def load_datasets():
-#     """
-#     Load pre-split datasets from the /datasets directory.
-#     Returns:
-#         train_data (pd.DataFrame): Training dataset.
-#         val_data (pd.DataFrame): Validation dataset.
-#         test_data (pd.DataFrame): Test dataset.
-#     """
-#     train_path = os.path.join('datasets', 'train.json')
-#     val_path = os.path.join('datasets', 'val.json')
-#     test_path = os.path.join('datasets', 'test.json')
-
-#     if not all(os.path.exists(path) for path in [train_path, val_path, test_path]):
-#         raise FileNotFoundError("train.json, val.json, or test.json not found in /datasets directory.")
-
-#     train_data = pd.read_json(train_path)
-#     val_data = pd.read_json(val_path)
-#     test_data = pd.read_json(test_path)
-
-#     return train_data, val_data, test_data
-
-# def custom_tokenizer(text):
-#     # Split on word boundaries, keep symbols as tokens
-#     return re.findall(r"\w+|[^\w\s]", text, re.UNICODE)
-
-
-
-# LABEL_COLUMNS = [
-#     'Warm', 'Gram', 'Str', 'Math', 'Sptl', 'Img', 'Cell', 'Grid', 'Grph', 'Path', 'BFS', 'DFS',
-#     'Dyn', 'Memo', 'Opt', 'Log', 'Bit', 'VM', 'Rev', 'Sim', 'Inp', 'Scal'
-# ]
-
-# def preprocess(df, preprocessing_type, label_columns):
-#     # df_filtered = dataframe[preprocessing_type]
-#     # print(f"[{preprocessing_type}] Rows remaining after filtering: {len(df_filtered)}")
-
-#     X = df[preprocessing_type].astype(str).fillna('')
-#     Y = df[label_columns].notna().astype(int)
-#     vectorizer = CountVectorizer()
-#     X_vect = vectorizer.fit_transform(X)
-#     return X_vect, Y, vectorizer
-
-
-
-# def train_mlp_on_ast(train_data, val_data, test_data, label_columns, preprocessing_type):
-#     X_train, Y_train, vectorizer = preprocess(train_data, preprocessing_type, label_columns)
-#     X_val, Y_val, _ = preprocess(val_data, preprocessing_type, label_columns)
-#     X_test, Y_test, _ = preprocess(test_data, preprocessing_type, label_columns)
-#     model = MultiOutputClassifier(MLPClassifier(hidden_layer_sizes=(512,), max_iter=1000, random_state=42, verbose=True))
-#     model.fit(X_train, Y_train)
-#     Y_pred = model.predict(X_test)
-#     print("MLP Classification Report:")
-#     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
-
-#     # Calculate accuracy and accuracy as Jaccard subset
-#     accuracy_test = accuracy_score(Y_test, Y_pred)
-#     print("Exact match accuracy (on TEST set):", accuracy_test)
-
-#     correct_predictions_test = np.all(Y_test == Y_pred, axis=1) # Exact match
-#     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
-#     print("At least one correct prediction:", at_least_one_correct_test)
-
-#     # Save vectorizer
-#     joblib.dump(vectorizer, f'models/{preprocessing_type}_mlp_vectorizer.joblib')
-
-
-#     return model
-
-
-# def train_svm(train_data, val_data, test_data, label_columns, preprocessing_type):
-#     X_train, Y_train, vectorizer = preprocess(train_data, preprocessing_type, label_columns)
-#     X_val, Y_val, _ = preprocess(val_data, preprocessing_type, label_columns)
-#     X_test, Y_test, _ = preprocess(test_data, preprocessing_type, label_columns)
-
-#     model = OneVsRestClassifier(LogisticRegression(max_iter=1000))
-#     model.fit(X_train, Y_train)
-#     Y_prob = model.predict_proba(X_test)
-
-#     # Dit tunen zorgt ervoor dat er iets wordt voorspeld, maar de voorspelling is alsnog matig.
-#     Y_pred = (Y_prob > 0.1).astype(int)
-
-#     print("SVM Classification Report:")
-#     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
-
-#     # show_example_predictions(X_test, Y_test, Y_pred, label_columns)
-
-#     accuracy_test = accuracy_score(Y_test, Y_pred)
-#     print("Exact match accuracy (on TEST set):", accuracy_test)
-
-#     correct_predictions_test = np.all(Y_test == Y_pred, axis=1)
-#     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
-#     print("At least one correct prediction:", at_least_one_correct_test)
-
-#     joblib.dump(vectorizer, f'models/{preprocessing_type}_svm_vectorizer.joblib')
-
-#     return model
-
-# def train_random_forest(train_data, val_data, test_data, label_columns, preprocessing_type):
-#     X_train, Y_train, vectorizer = preprocess(train_data, preprocessing_type, label_columns)
-#     X_val, Y_val, _ = preprocess(val_data, preprocessing_type, label_columns)
-#     X_test, Y_test, _ = preprocess(test_data, preprocessing_type, label_columns)
-#     # model = MultiOutputClassifier(RandomForestClassifier(n_estimators=200, random_state=42))
-
-#     model = OneVsRestClassifier(RandomForestClassifier(n_estimators=200, random_state=42))
-#     model.fit(X_train, Y_train)
-#     Y_pred = model.predict(X_test)
-#     print("Random Forest Classification Report:")
-#     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
-
-#     show_example_predictions(X_test, Y_test, Y_pred, label_columns)
-
-#     # Calculate accuracy and accuracy as Jaccard subset
-#     accuracy_test = accuracy_score(Y_test, Y_pred)
-#     print("Exact match accuracy (on TEST set):", accuracy_test)
-
-#     correct_predictions_test = np.all(Y_test == Y_pred, axis=1) # Exact match
-#     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
-#     print("At least one correct prediction:", at_least_one_correct_test)
-
-#     # Save vectorizer
-#     joblib.dump(vectorizer, f'models/{preprocessing_type}_rf_vectorizer.joblib')
-
-
-#     return model
-
-
-# # def train_bow_classifier(dataframe, label_columns, preprocessing_type):
-# #     X = dataframe[preprocessing_type].astype(str).fillna('')
-# #     Y = dataframe[label_columns].notna().astype(int)
-
-# #     vectorizer = CountVectorizer(tokenizer=custom_tokenizer, lowercase=False, token_pattern=None)
-# #     X_vect = vectorizer.fit_transform(X)
-
-# #     X_train, X_test, Y_train, Y_test = train_test_split(X_vect, Y, test_size=0.2, random_state=42)
-
-# #     model = OneVsRestClassifier(LogisticRegression(max_iter=1000, random_state=42))
-# #     model.fit(X_train, Y_train)
-
-# #     Y_pred = model.predict(X_test)
-# #     print("Bag-of-Tokens Logistic Regression Classification Report:")
-# #     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
-# #     accuracy_test = accuracy_score(Y_test, Y_pred)
-# #     print("Exact match accuracy (on TEST set):", accuracy_test)
-    
-# #     show_example_predictions(X_test, Y_test, Y_pred, label_columns)
-
-# #     os.makedirs('models', exist_ok=True)
-# #     joblib.dump(model, f'models/{preprocessing_type}_bow_lr_model.joblib')
-# #     joblib.dump(vectorizer, f'models/{preprocessing_type}_bow_vectorizer.joblib')
-
-
-# #     return model
-
-
-# def train_bow_classifier(train_data, val_data, test_data, label_columns, preprocessing_type):
-#     X_train, Y_train, vectorizer = preprocess(train_data, preprocessing_type, label_columns)
-#     X_val, Y_val, _ = preprocess(val_data, preprocessing_type, label_columns)
-#     X_test, Y_test, _ = preprocess(test_data, preprocessing_type, label_columns)
-
-#     model = OneVsRestClassifier(LogisticRegression(max_iter=1000, random_state=42))
-#     model.fit(X_train, Y_train)
-
-#     Y_pred = model.predict(X_test)
-#     print("Bag-of-Tokens Logistic Regression Classification Report:")
-#     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
-
-#     accuracy_test = accuracy_score(Y_test, Y_pred)
-#     print("Exact match accuracy (on TEST set):", accuracy_test)
-
-#     correct_predictions_test = np.all(Y_test == Y_pred, axis=1) # Exact match
-#     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
-#     print("At least one correct prediction:", at_least_one_correct_test)
-
-#     joblib.dump(vectorizer, f'models/{preprocessing_type}_bow_vectorizer.joblib')
-
-#     return model
-
-
-
-# def train_knn(dataframe, label_columns, preprocessing_type):
-#     X, Y, vectorizer = preprocess(dataframe, preprocessing_type, label_columns)
-#     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-#     model = MultiOutputClassifier(KNeighborsClassifier(n_neighbors=5))
-#     model.fit(X_train, Y_train)
-#     Y_pred = model.predict(X_test)
-#     print("K-Nearest Neighbors Classification Report:")
-#     print(classification_report(Y_test, Y_pred, target_names=label_columns, zero_division=0))
-
-#     # show_example_predictions(X_test, Y_test, Y_pred, label_columns)
-
-#     # Calculate accuracy and accuracy as Jaccard subset
-#     accuracy_test = accuracy_score(Y_test, Y_pred)
-#     print("Exact match accuracy (on TEST set):", accuracy_test)
-
-#     correct_predictions_test = np.all(Y_test == Y_pred, axis=1) # Exact match
-#     at_least_one_correct_test = np.sum(np.sum((Y_test == 1) & (Y_pred == 1), axis=1) > 0) / len(Y_test)
-#     print("At least one correct prediction:", at_least_one_correct_test)
-
-#     joblib.dump(vectorizer, f'models/{preprocessing_type}_knn_vectorizer.joblib')
-
-
-#     return model
-
-
-# def show_example_predictions(X_test, Y_test, Y_pred, label_columns, n=10, original_texts=None):
-#     print("\n--- Example Predictions ---")
-
-#     n_samples = X_test.shape[0]
-#     n = min(n, n_samples)
-
-#     if n == 0:
-#         print("No test samples to show.")
-#         return
-
-#     for i in range(n):
-#         true_labels_indices = np.where(Y_test.iloc[i] == 1)[0]
-#         predicted_labels_indices = np.where(Y_pred[i] == 1)[0]
-
-#         true_labels = [label_columns[idx] for idx in true_labels_indices]
-#         predicted_labels = [label_columns[idx] for idx in predicted_labels_indices]
-
-#         print(f"Sample {i + 1}")
-#         if original_texts is not None:
-#             print(f"  Text: {original_texts.iloc[i]}")
-#         print(f"  True:      {true_labels if true_labels else ['(None)']}")
-#         print(f"  Predicted: {predicted_labels if predicted_labels else ['(None)']}")
-#         print("------")
-
-
-# def show_astnn_predictions(Y_true, Y_pred, mlb, n=10):
-#     """
-#     Display example predictions for ASTNN using mlb.inverse_transform.
-#     """
-#     n = min(n, len(Y_true))
-#     true_label_names = mlb.inverse_transform(Y_true)
-#     pred_label_names = mlb.inverse_transform(Y_pred)
-#     print("\n--- Example Predictions (ASTNN) ---")
-#     for i in range(n):
-#         print(f"Sample {i + 1}")
-#         print(f"  True:      {true_label_names[i] if true_label_names[i] else ['(None)']}")
-#         print(f"  Predicted: {pred_label_names[i] if pred_label_names[i] else ['(None)']}")
-#         print("------")
-
-# def main():
-#     # Load pre-split datasets
-#     train_data, val_data, test_data = load_datasets()
-
-#     print("\nNgrams")
-#     print("Training Random Forest on Ngrams")
-#     rf_model = train_random_forest(train_data, val_data, test_data, LABEL_COLUMNS, 'Data')
-#     joblib.dump(rf_model, 'models/ngrams_rf_model.joblib')
-
-
-#     # # AST
-#     # print("\nAST")
-#     # # print("Training MLP on AST")
-#     # df_ast = pd.read_pickle('results/ast.pkl')
-#     # ast_model = train_mlp_on_ast(df_ast, LABEL_COLUMNS, 'ast')
-    
-#     # # Save model
-#     # os.makedirs('models', exist_ok=True)
-#     # joblib.dump(ast_model, 'models/ast_mlp_model.joblib')
-
-
-#     # print("\nTraining SVM on AST")
-#     # svm_model = train_svm(df_ast, LABEL_COLUMNS, 'ast')
-#     # joblib.dump(svm_model, 'models/ast_svm_model.joblib')
-
-#     # Bag of Words
-#     print("\nBag of Words")
-#     print("Training Bag of Words Classifier")
-#     bow_model = train_bow_classifier(train_data, val_data, test_data, LABEL_COLUMNS, 'Data')
-#     joblib.dump(bow_model, 'models/bow_lr_model.joblib')
-    
-
-
-# if __name__ == "__main__":
-#     main()
-
 from sklearn.model_selection import GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.multiclass import OneVsRestClassifier
@@ -319,11 +18,17 @@ LABEL_COLUMNS = [
 
 
 def code_tokenizer(code):
+    """
+    Tokenizes code, while keeping operators and numbers as separate tokens.
+    """
     tokens = re.findall(r'\w+|[+\-*/=<>!&|]+|\d+|[(){}\[\];,.]', code)
     return tokens
 
 
 def load_datasets(data_type=''):
+    """
+    Loads train, validation, and test datasets from JSON files in the 'datasets' directory.
+    """
     train_path = os.path.join('datasets', f'train{data_type}.json')
     val_path = os.path.join('datasets', f'val{data_type}.json')
     test_path = os.path.join('datasets', f'test{data_type}.json')
@@ -338,6 +43,9 @@ def load_datasets(data_type=''):
     return train_data, val_data, test_data
 
 def preprocess(df):
+    """
+    Preprocesses the DataFrame by tokenizing the 'Data' column and creating a binary label matrix.
+    """
     X = df['Data'].astype(str).fillna('')
     Y = pd.DataFrame(0, index=np.arange(len(df)), columns=LABEL_COLUMNS)
 
@@ -352,6 +60,9 @@ def preprocess(df):
 
 
 def preprocess_with_existing_vectorizer(df, vectorizer):
+    """
+    Preprocesses the DataFrame using an existing CountVectorizer.
+    """
     X = df['Data'].astype(str).fillna('')
     Y = pd.DataFrame(0, index=np.arange(len(df)), columns=LABEL_COLUMNS)
 
@@ -364,8 +75,10 @@ def preprocess_with_existing_vectorizer(df, vectorizer):
     return X_vect, Y
 
 
-
 def train_model_with_cv(train_data, test_data, label_columns, text_column, model_cls, param_grid, model_name="model"):
+    """
+    Trains a model using GridSearchCV with the provided training and test datasets.
+    """
     # Preprocess train and test
     X_train, Y_train, vectorizer = preprocess(train_data)
     X_test, Y_test = preprocess_with_existing_vectorizer(test_data, vectorizer)
@@ -399,17 +112,41 @@ def train_model_with_cv(train_data, test_data, label_columns, text_column, model
     print("At least one correct prediction:", at_least_one_correct_test)
 
     # Evaluate on test set per DataSource
-    data_sources = test_data['DataSource'].unique()
-    for source in data_sources:
-        X_test_source = test_data[test_data['DataSource'] == source]
-        X_test_vect, Y_test_source = preprocess_with_existing_vectorizer(X_test_source, vectorizer)
-        Y_pred_source = best_model.predict(X_test_vect)
-        print(f"\n{model_name} Classification Report for DataSource '{source}':")
-        print(classification_report(Y_test_source, Y_pred_source, target_names=label_columns, zero_division=0))
-        print("Exact match accuracy for DataSource '{}':".format(source), accuracy_score(Y_test_source, Y_pred_source))
-        print("At least one correct prediction for DataSource '{}':".format(source),
-              np.sum(np.sum((Y_test_source == 1) & (Y_pred_source == 1), axis=1) > 0) / len(Y_test_source))
-        print("Hamming loss for DataSource '{}':".format(source), hamming_loss(Y_test_source, Y_pred_source))
+    # data_sources = test_data['DataSource'].unique()
+    # for source in data_sources:
+    #     X_test_source = test_data[test_data['DataSource'] == source]
+    #     X_test_vect, Y_test_source = preprocess_with_existing_vectorizer(X_test_source, vectorizer)
+    #     Y_pred_source = best_model.predict(X_test_vect)
+    #     print(f"\n{model_name} Classification Report for DataSource '{source}':")
+    #     print(classification_report(Y_test_source, Y_pred_source, target_names=label_columns, zero_division=0))
+    #     print("Exact match accuracy for DataSource '{}':".format(source), accuracy_score(Y_test_source, Y_pred_source))
+    #     print("At least one correct prediction for DataSource '{}':".format(source),
+    #           np.sum(np.sum((Y_test_source == 1) & (Y_pred_source == 1), axis=1) > 0) / len(Y_test_source))
+    #     print("Hamming loss for DataSource '{}':".format(source), hamming_loss(Y_test_source, Y_pred_source))
+
+    # Evaluate on test set for multi-label and single-label cases
+    test_multi_label = test_data[test_data['Labels'].apply(lambda x: len(x) > 1)]
+    test_single_label = test_data[test_data['Labels'].apply(lambda x: len(x) == 1)]
+
+    if not test_multi_label.empty:
+        X_test_multi, Y_test_multi = preprocess_with_existing_vectorizer(test_multi_label, vectorizer)
+        Y_pred_multi = best_model.predict(X_test_multi)
+        print(f"\n{model_name} Classification Report for Multi-label Test Set:")
+        print(classification_report(Y_test_multi, Y_pred_multi, target_names=label_columns, zero_division=0))
+        print("Exact match accuracy for Multi-label Test Set:", accuracy_score(Y_test_multi, Y_pred_multi))
+        print("At least one correct prediction for Multi-label Test Set:",
+              np.sum(np.sum((Y_test_multi == 1) & (Y_pred_multi == 1), axis=1) > 0) / len(Y_test_multi))
+        print("Hamming loss for Multi-label Test Set:", hamming_loss(Y_test_multi, Y_pred_multi))
+
+    if not test_single_label.empty:
+        X_test_single, Y_test_single = preprocess_with_existing_vectorizer(test_single_label, vectorizer)
+        Y_pred_single = best_model.predict(X_test_single)
+        print(f"\n{model_name} Classification Report for Single-label Test Set:")
+        print(classification_report(Y_test_single, Y_pred_single, target_names=label_columns, zero_division=0))
+        print("Exact match accuracy for Single-label Test Set:", accuracy_score(Y_test_single, Y_pred_single))
+        print("At least one correct prediction for Single-label Test Set:",
+              np.sum(np.sum((Y_test_single == 1) & (Y_pred_single == 1), axis=1) > 0) / len(Y_test_single))
+        print("Hamming loss for Single-label Test Set:", hamming_loss(Y_test_single, Y_pred_single))
 
     # Hamming loss
     print("Hamming loss:", hamming_loss(Y_test, Y_pred))
@@ -425,8 +162,11 @@ def main():
     train_data, val_data, test_data = load_datasets()
     train_ngrams , val_ngrams, test_ngrams = load_datasets(data_type='_ngrams')
 
+    test_multi_label = test_data[test_data['Labels'].apply(lambda x: len(x) > 1)]
+    test_single_label = test_data[test_data['Labels'].apply(lambda x: len(x) == 1)]
 
-    # Define parameter grid for Random Forest
+
+    # Parameter grid for Random Forest
     param_grid_rf = {
         'estimator__n_estimators': [100, 200],
         'estimator__max_depth': [None, 10, 20],
@@ -460,6 +200,7 @@ def main():
 
     # Train Bag of Words Classifier
     bow_model = train_model_with_cv(train_data, test_data, LABEL_COLUMNS, 'Data', LogisticRegression, params_bow, model_name="bow_model")
+    
     # Save the model and vectorizer
     os.makedirs('models', exist_ok=True)
     joblib.dump(bow_model, 'models/bow_model.joblib')
