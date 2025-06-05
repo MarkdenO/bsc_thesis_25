@@ -46,9 +46,8 @@ For the bag-of-words and n-grams models, use:
 $ python3 train_models.py
 ```
 
-For the AST model, locate to the AST folder and execute `ast_model.py`:
+For the AST model execute `ast_model.py`:
 ```
-$ cd ast/
 $ python3 ast_model.py
 ```
 
